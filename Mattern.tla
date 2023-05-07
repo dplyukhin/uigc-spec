@@ -6,7 +6,8 @@ CONSTANT Actor,       \* The names of participating actors
 
 VARIABLE 
     actorState,  \* actorState[a] is the state of actor `a'.
-    msgs,         \* msgs is the set of all undelivered messages.
+    msgs,        \* msgs is the set of all undelivered messages.
+    snapshots,   \* snapshots[a] is a snapshot of some actor's state
     numSteps
 
 Perms == Permutations(Actor)
@@ -17,12 +18,18 @@ Messages ==
   target, and the count of how many messages the sender sent to the target so 
   far. *)
 
+ActorState ==
+    [ status   : {"busy", "idle"},
+      sent     : [Actor -> Nat],
+      received : Nat
+    ]
+
+Null == [ type: {"null"} ]
+null == [type |-> "null"]
+
 TypeOK == 
-  /\ actorState \in [Actor -> [ status   : {"busy", "idle"},
-                                sent     : [Actor -> Nat],
-                                received : Nat
-                              ]
-                    ]
+  /\ actorState \in [Actor -> ActorState]
+  /\ snapshots \in [Actor -> ActorState \cup Null]
   /\ msgs \subseteq Messages
   /\ numSteps \in Nat
         
@@ -33,16 +40,23 @@ Init ==
              sent     |-> [b \in Actor |-> 0],
              received |-> 0
             ]]
+    /\ snapshots = [a \in Actor |-> null]
     /\ msgs = {}
     /\ numSteps = 0
 
 -----------------------------------------------------------------------------
-\*allQuiescent == \A a \in Actor : actorState[a]
+
+blocked(a) == 
+    /\ actorState[a].status = "idle"
+    /\ { m \in msgs : m.target = a } = {}
+    
+allQuiescent == \A a \in Actor : blocked(a)
+
 -----------------------------------------------------------------------------
 Idle(a) ==
     /\ actorState[a].status = "busy"
     /\ actorState' = [actorState EXCEPT ![a].status = "idle"]
-    /\ UNCHANGED msgs
+    /\ UNCHANGED <<msgs,snapshots>>
 
 Send(a) == 
     /\ actorState[a].status = "busy"
@@ -50,6 +64,7 @@ Send(a) ==
         LET n == actorState[a].sent[b] IN
         /\ actorState' = [actorState EXCEPT ![a].sent[b] = (n + 1)]
         /\ msgs' = msgs \cup {[sender |-> a, target |-> b, id |-> (n + 1)]}
+        /\ UNCHANGED <<snapshots>>
 
 Receive(a) ==
     /\ actorState[a].status = "idle"
@@ -60,10 +75,16 @@ Receive(a) ==
             ![a].received = (n+1), 
             ![a].status = "busy"]
         /\ msgs' = msgs \ {m}
+        /\ UNCHANGED <<snapshots>>
+
+Snapshot(a) ==
+    /\ snapshots[a] = null
+    /\ snapshots' = [snapshots EXCEPT ![a] = actorState[a]]
+    /\ UNCHANGED <<msgs,actorState>>
 
 Next == \E a \in Actor : 
     numSteps < BOUND /\ numSteps' = numSteps + 1 /\
-    (Idle(a) \/ Send(a) \/ Receive(a))
+    (Idle(a) \/ Send(a) \/ Receive(a) \/ Snapshot(a))
 
 -----------------------------------------------------------------------------
 RECURSIVE _MapSum(_, _)
@@ -82,7 +103,18 @@ MessagesConsistent(a) ==
 AllMessagesConsistent == 
     \A a \in Actor : MessagesConsistent(a)
 
-\* QuiescentConsistent == If quiescent then no messages
+AppearsBlocked(a) ==
+    (\A b \in Actor : snapshots[b] # null) /\
+    snapshots[a].status = "idle" /\
+    LET 
+        received == snapshots[a].received
+        sent == MapSum([ b \in Actor |-> snapshots[b].sent[a] ])
+    IN received = sent
+
+Safety ==
+    (\A a \in Actor : AppearsBlocked(a)) =>
+    allQuiescent
+
 -----------------------------------------------------------------------------
 
 ====
