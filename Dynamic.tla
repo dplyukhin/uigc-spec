@@ -111,14 +111,19 @@ Send(a) ==
 Receive(a) ==
     /\ actorState[a].status = "idle"
     /\ \E m \in msgs :
-        LET n == actorState[a].received IN
         /\ m.target = a 
-        \* TODO Add each ref to local state
-        /\ actorState' = [actorState EXCEPT 
-            ![a].received = (n+1), 
-            ![a].status = "busy"]
-        /\ msgs' = msgs \ {m}
-        /\ UNCHANGED <<snapshots>>
+        /\ LET n == actorState[a].received 
+               active == [c \in Actor |-> 
+                    IF c \in m.refs 
+                    THEN actorState[a].active[c] + 1
+                    ELSE actorState[a].active[c] + 1]
+           IN
+            /\ actorState' = [actorState EXCEPT 
+                ![a].active = active,
+                ![a].received = (n+1), 
+                ![a].status = "busy"]
+            /\ msgs' = msgs \ {m}
+            /\ UNCHANGED <<snapshots>>
 
 Snapshot(a) ==
     /\ snapshots[a] = null
