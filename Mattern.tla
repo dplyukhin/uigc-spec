@@ -1,14 +1,20 @@
 ---- MODULE Mattern ----
 EXTENDS Integers, FiniteSets, Bags, TLC
 
-CONSTANT Actor,       \* The names of participating actors
-  BOUND \* maximum number of steps to take
+(*
+NOTES ON THIS MODULE
+
+- The search space is unbounded. To perform bounded search,
+  run TLC with the argument `-dfid N` where `N` is the 
+  search bound.
+*)
+
+CONSTANT Actor   \* The names of participating actors
 
 VARIABLE 
     actorState,  \* actorState[a] is the state of actor `a'.
     msgs,        \* msgs is the set of all undelivered messages.
-    snapshots,   \* snapshots[a] is a snapshot of some actor's state
-    numSteps
+    snapshots    \* snapshots[a] is a snapshot of some actor's state
 
 Perms == Permutations(Actor)
 -----------------------------------------------------------------------------
@@ -31,7 +37,6 @@ TypeOK ==
   /\ actorState \in [Actor -> ActorState]
   /\ snapshots \in [Actor -> ActorState \cup Null]
   /\ msgs \subseteq Messages
-  /\ numSteps \in Nat
         
 Init ==   
     /\ actorState = 
@@ -42,7 +47,6 @@ Init ==
             ]]
     /\ snapshots = [a \in Actor |-> null]
     /\ msgs = {}
-    /\ numSteps = 0
 
 -----------------------------------------------------------------------------
 
@@ -83,7 +87,6 @@ Snapshot(a) ==
     /\ UNCHANGED <<msgs,actorState>>
 
 Next == \E a \in Actor : 
-    numSteps < BOUND /\ numSteps' = numSteps + 1 /\
     (Idle(a) \/ Send(a) \/ Receive(a) \/ Snapshot(a))
 
 -----------------------------------------------------------------------------

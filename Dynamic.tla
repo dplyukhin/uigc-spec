@@ -1,6 +1,17 @@
 ---- MODULE Dynamic ----
 EXTENDS Integers, FiniteSets, Bags, TLC
 
+(*
+NOTES ON THIS MODULE
+
+- Exhaustive search is intractable for any execution long
+  enough to manifest a bug. So use `-simulate` to generate
+  random executions.
+- If you find a bug, you want to try and find a small witness.
+  Best bet is to use `-simulate -depth N` to only search executions
+  of length up to `N`.
+*)
+
 CONSTANT 
     Actor,  \* The names of participating actors
     MAX_REFS    \* maximum number of refs in a message
@@ -92,11 +103,20 @@ Deactivate(a) ==
 Send(a) == 
     /\ actorState[a].status = "busy"
     /\ \E b \in Actor : 
+       actorState[a].active[b] > 0 /\
        \E refs \in SUBSET { c \in Actor : actorState[a].active[c] > 0 } :
         Cardinality(refs) <= MAX_REFS /\
-        LET n == actorState[a].sent[b] IN
-        /\ actorState[a].active[b] > 0
-        /\ actorState' = [actorState EXCEPT ![a].sent[b] = (n + 1)]
+        LET n == actorState[a].sent[b] 
+            created == [ <<x,y>> \in Actor \X Actor |-> 
+                IF x = b /\ y \in refs 
+                THEN actorState[a].created[<<x,y>>] + 1
+                ELSE actorState[a].created[<<x,y>>]
+                ]
+        IN
+        /\ actorState' = [actorState EXCEPT 
+            ![a].sent[b] = (n + 1),
+            ![a].created = created
+            ]
         /\ msgs' = msgs \cup {[sender |-> a, target |-> b, id |-> (n + 1), refs |-> refs]}
         /\ UNCHANGED <<snapshots>>
 
@@ -185,16 +205,15 @@ AppearsQuiescent(b, Q) ==
 
 UpwardClosed(Q) ==
     \A a, b, c \in Actor : 
-    (/\ Q[a] # null 
-     /\ Q[c] # null
-     /\ Q[a].created[<<b,c>>] > 0
-    )
+    /\ Q[a] # null 
+    /\ Q[c] # null
+    /\ Q[a].created[<<b,c>>] > 0
     => Q[b] # null
 
-Safety == UpwardClosed(snapshots)
-    \*/\ UpwardClosed(snapshots)
-    \*/\ \A a \in ActorsOf(snapshots) :
-    \*    AppearsQuiescent(a, snapshots) => Quiescent(a)
+Safety ==
+    UpwardClosed(snapshots)
+    => \A a \in ActorsOf(snapshots) :
+        AppearsQuiescent(a, snapshots) => Quiescent(a)
 
 -----------------------------------------------------------------------------
 
