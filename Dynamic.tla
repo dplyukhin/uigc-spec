@@ -22,7 +22,10 @@ Messages ==
 ActorState ==
     [ status   : {"busy", "idle"},
       sent     : [Actor -> Nat],
-      received : Nat
+      received : Nat,
+      active      : [Actor -> Nat],
+      deactivated : [Actor -> Nat],
+      created     : [Actor \X Actor -> Nat]
     ]
 
 Null == [ type: {"null"} ]
@@ -34,18 +37,22 @@ TypeOK ==
   /\ msgs \subseteq Messages
   /\ numSteps \in Nat
 
-initialState ==
+initialState(self, parent) ==
     [
         status   |-> "busy", 
         sent     |-> [b \in Actor |-> 0],
-        received |-> 0
+        received |-> 0,
+        active   |-> [b \in Actor |-> IF b = self THEN 1 ELSE 0],
+        deactivated |-> [b \in Actor |-> 0],
+        created  |-> [<<a,b>> \in Actor \X Actor |-> 
+            IF (a = self \/ a = parent) /\ b = self THEN 1 ELSE 0]
     ]
         
 (* Initially, some actor exists and the rest do not. *)
 Init ==   
     LET initialActor == CHOOSE a \in Actor: TRUE IN
     /\ actorState = [a \in Actor |-> 
-            IF a = initialActor THEN initialState
+            IF a = initialActor THEN initialState(a, null)
             ELSE null
         ]
     /\ snapshots = [a \in Actor |-> null]
@@ -70,8 +77,24 @@ Spawn(a) ==
     /\ actorState[a].status = "busy"
     /\ \E b \in Actor :
         /\ actorState[b] = null
-        /\ actorState' = [actorState EXCEPT ![b] = initialState]
+        /\ actorState' = [actorState EXCEPT 
+            ![a].active[b] = 1,      \* Add child ref to parent state
+            ![b] = initialState(a,b) 
+            ]
         /\ UNCHANGED <<snapshots,msgs>>
+
+Deactivate(a) ==
+    /\ actorState[a].status = "busy"
+    /\ \E b \in Actor :
+        LET active == actorState[a].active[b] 
+            deactivated == actorState[a].deactivated[b] 
+        IN 
+        /\ active > 0
+        /\ actorState' = [actorState EXCEPT 
+            ![a].deactivated[b] = deactivated + active,
+            ![a].active[b] = 0
+            ]
+        /\ UNCHANGED <<msgs,snapshots>>
 
 Send(a) == 
     /\ actorState[a].status = "busy"
@@ -100,7 +123,8 @@ Snapshot(a) ==
 Next == \E a \in Actor : 
     numSteps < BOUND /\ numSteps' = numSteps + 1 /\ 
     actorState[a] # null /\
-    (Idle(a) \/ Spawn(a) \/ Send(a) \/ Receive(a) \/ Snapshot(a))
+    (Idle(a) \/ Spawn(a) \/ Deactivate(a) \/ Send(a) \/ Receive(a) \/ 
+     Snapshot(a))
 
 -----------------------------------------------------------------------------
 
