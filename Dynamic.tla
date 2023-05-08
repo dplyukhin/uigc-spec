@@ -3,7 +3,8 @@ EXTENDS Integers, FiniteSets, Bags, TLC
 
 CONSTANT 
     Actor,  \* The names of participating actors
-    BOUND   \* maximum number of steps to take
+    MAX_STEPS,  \* maximum number of steps to take
+    MAX_REFS    \* maximum number of refs in a message
 
 VARIABLE 
     actorState,  \* actorState[a] is the state of actor `a'.
@@ -14,7 +15,7 @@ VARIABLE
 Perms == Permutations(Actor)
 -----------------------------------------------------------------------------
 Messages ==
-  [sender: Actor, target: Actor, id: Nat] 
+  [sender: Actor, target: Actor, id: Nat, refs : SUBSET Actor] 
   (* A message is uniquely identified by the name of the sender, the name of the
   target, and the count of how many messages the sender sent to the target so 
   far. *)
@@ -98,11 +99,13 @@ Deactivate(a) ==
 
 Send(a) == 
     /\ actorState[a].status = "busy"
-    /\ \E b \in Actor :
+    /\ \E b \in Actor : 
+       \E refs \in SUBSET { c \in Actor : actorState[a].active[c] > 0 } :
         LET n == actorState[a].sent[b] IN
+        /\ Cardinality(refs) <= MAX_REFS
         /\ actorState[a].active[b] > 0
         /\ actorState' = [actorState EXCEPT ![a].sent[b] = (n + 1)]
-        /\ msgs' = msgs \cup {[sender |-> a, target |-> b, id |-> (n + 1)]}
+        /\ msgs' = msgs \cup {[sender |-> a, target |-> b, id |-> (n + 1), refs |-> refs]}
         /\ UNCHANGED <<snapshots>>
 
 Receive(a) ==
@@ -110,6 +113,7 @@ Receive(a) ==
     /\ \E m \in msgs :
         LET n == actorState[a].received IN
         /\ m.target = a 
+        \* TODO Add each ref to local state
         /\ actorState' = [actorState EXCEPT 
             ![a].received = (n+1), 
             ![a].status = "busy"]
@@ -122,7 +126,7 @@ Snapshot(a) ==
     /\ UNCHANGED <<msgs,actorState>>
 
 Next == \E a \in Actor : 
-    numSteps < BOUND /\ numSteps' = numSteps + 1 /\ 
+    numSteps < MAX_STEPS /\ numSteps' = numSteps + 1 /\ 
     actorState[a] # null /\
     (Idle(a) \/ Spawn(a) \/ Deactivate(a) \/ Send(a) \/ Receive(a) \/ 
      Snapshot(a))
