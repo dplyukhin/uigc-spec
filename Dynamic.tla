@@ -177,7 +177,7 @@ PotentialAcquaintance(a,b) ==
 RECURSIVE Quiescent(_)
 Quiescent(b) ==
     /\ Blocked(b)
-    /\ \A a \in Actor : 
+    /\ \A a \in Actor \ {b} : 
         PotentialAcquaintance(a,b) =>
         Quiescent(a)
 
@@ -199,7 +199,7 @@ AppearsBlocked(b,Q) ==
 RECURSIVE AppearsQuiescent(_,_)
 AppearsQuiescent(b, Q) ==
     /\ AppearsBlocked(b,Q)
-    /\ \A a \in ActorsOf(Q) :
+    /\ \A a \in ActorsOf(Q) \ {b} :
         AppearsAcquainted(a,b,Q) =>
         AppearsQuiescent(b,Q)
 
