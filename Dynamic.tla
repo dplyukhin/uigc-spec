@@ -138,6 +138,41 @@ Next == \E a \in Actor :
 
 -----------------------------------------------------------------------------
 
+RECURSIVE _MapSum(_, _)
+_MapSum(dom, map) == IF dom = {} THEN 0 ELSE 
+    LET x == CHOOSE x \in dom: TRUE IN
+    map[x] + _MapSum(dom \ {x}, map)
+MapSum(map) == _MapSum(DOMAIN map, map)
+
+MessagesConsistent(a) == 
+    LET 
+        received == actorState[a].received
+        sent == MapSum([ b \in Actor |-> 
+            IF actorState[b] # null THEN actorState[b].sent[a] ELSE 0 ])
+        undelivered == Cardinality({ m \in msgs : m.target = a })
+    IN received + undelivered = sent
+
+AllMessagesConsistent == 
+    \A a \in Actor : 
+    actorState[a] # null => MessagesConsistent(a)
+
+Blocked(a) == 
+    /\ actorState[a].status = "idle"
+    /\ { m \in msgs : m.target = a } = {}
+
+PotentialAcquaintance(a,b) ==
+    \/ actorState[a].active[b] > 0
+    \/ \E m \in msgs : 
+        /\ m.target = a
+        /\ b \in m.refs
+
+RECURSIVE Quiescent(_)
+Quiescent(b) ==
+    /\ Blocked(b)
+    /\ \A a \in Actor : 
+        PotentialAcquaintance(a,b) =>
+        Quiescent(a)
+
 -----------------------------------------------------------------------------
 
 ====
