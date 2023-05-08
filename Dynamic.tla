@@ -100,6 +100,7 @@ Send(a) ==
     /\ actorState[a].status = "busy"
     /\ \E b \in Actor :
         LET n == actorState[a].sent[b] IN
+        /\ actorState[a].active[b] > 0
         /\ actorState' = [actorState EXCEPT ![a].sent[b] = (n + 1)]
         /\ msgs' = msgs \cup {[sender |-> a, target |-> b, id |-> (n + 1)]}
         /\ UNCHANGED <<snapshots>>
