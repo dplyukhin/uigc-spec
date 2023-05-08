@@ -3,14 +3,12 @@ EXTENDS Integers, FiniteSets, Bags, TLC
 
 CONSTANT 
     Actor,  \* The names of participating actors
-    MAX_STEPS,  \* maximum number of steps to take
     MAX_REFS    \* maximum number of refs in a message
 
 VARIABLE 
     actorState,  \* actorState[a] is the state of actor `a'.
     msgs,        \* msgs is the set of all undelivered messages.
-    snapshots,   \* snapshots[a] is a snapshot of some actor's state
-    numSteps
+    snapshots    \* snapshots[a] is a snapshot of some actor's state
 
 Perms == Permutations(Actor)
 -----------------------------------------------------------------------------
@@ -36,7 +34,6 @@ TypeOK ==
   /\ actorState \in [Actor -> ActorState \cup Null]
   /\ snapshots \in [Actor -> ActorState \cup Null]
   /\ msgs \subseteq Messages
-  /\ numSteps \in Nat
 
 initialState(self, parent) ==
     [
@@ -58,7 +55,6 @@ Init ==
         ]
     /\ snapshots = [a \in Actor |-> null]
     /\ msgs = {}
-    /\ numSteps = 0
 
 -----------------------------------------------------------------------------
 
@@ -97,8 +93,8 @@ Send(a) ==
     /\ actorState[a].status = "busy"
     /\ \E b \in Actor : 
        \E refs \in SUBSET { c \in Actor : actorState[a].active[c] > 0 } :
+        Cardinality(refs) <= MAX_REFS /\
         LET n == actorState[a].sent[b] IN
-        /\ Cardinality(refs) <= MAX_REFS
         /\ actorState[a].active[b] > 0
         /\ actorState' = [actorState EXCEPT ![a].sent[b] = (n + 1)]
         /\ msgs' = msgs \cup {[sender |-> a, target |-> b, id |-> (n + 1), refs |-> refs]}
@@ -127,7 +123,6 @@ Snapshot(a) ==
     /\ UNCHANGED <<msgs,actorState>>
 
 Next == \E a \in CreatedActors : 
-    numSteps < MAX_STEPS /\ numSteps' = numSteps + 1 /\ 
     (Idle(a) \/ Spawn(a) \/ Deactivate(a) \/ Send(a) \/ Receive(a) \/ 
      Snapshot(a))
 
