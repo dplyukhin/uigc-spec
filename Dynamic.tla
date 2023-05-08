@@ -62,11 +62,7 @@ Init ==
 
 -----------------------------------------------------------------------------
 
-blocked(a) == 
-    /\ actorState[a].status = "idle"
-    /\ { m \in msgs : m.target = a } = {}
-    
-allQuiescent == \A a \in Actor : blocked(a)
+CreatedActors == { a \in Actor : actorState[a] # null }
 
 -----------------------------------------------------------------------------
 Idle(a) ==
@@ -130,9 +126,8 @@ Snapshot(a) ==
     /\ snapshots' = [snapshots EXCEPT ![a] = actorState[a]]
     /\ UNCHANGED <<msgs,actorState>>
 
-Next == \E a \in Actor : 
+Next == \E a \in CreatedActors : 
     numSteps < MAX_STEPS /\ numSteps' = numSteps + 1 /\ 
-    actorState[a] # null /\
     (Idle(a) \/ Spawn(a) \/ Deactivate(a) \/ Send(a) \/ Receive(a) \/ 
      Snapshot(a))
 
@@ -147,14 +142,12 @@ MapSum(map) == _MapSum(DOMAIN map, map)
 MessagesConsistent(a) == 
     LET 
         received == actorState[a].received
-        sent == MapSum([ b \in Actor |-> 
-            IF actorState[b] # null THEN actorState[b].sent[a] ELSE 0 ])
+        sent == MapSum([ b \in CreatedActors |-> actorState[b].sent[a]])
         undelivered == Cardinality({ m \in msgs : m.target = a })
     IN received + undelivered = sent
 
 AllMessagesConsistent == 
-    \A a \in Actor : 
-    actorState[a] # null => MessagesConsistent(a)
+    \A a \in CreatedActors : MessagesConsistent(a)
 
 Blocked(a) == 
     /\ actorState[a].status = "idle"
@@ -172,6 +165,41 @@ Quiescent(b) ==
     /\ \A a \in Actor : 
         PotentialAcquaintance(a,b) =>
         Quiescent(a)
+
+ActorsOf(Q) == { a \in Actor : Q[a] # null }
+
+AppearsAcquainted(b,c,Q) ==
+    LET created == MapSum([ a \in ActorsOf(Q) |-> 
+            Q[a].created[<<b,c>>]])
+        deactivated == Q[b].active[c]
+    IN created > deactivated
+
+AppearsBlocked(b,Q) ==
+    Q[b].status = "idle" /\
+    LET piacqs == { a \in ActorsOf(Q) : AppearsAcquainted(a,b,Q) }
+        sent == MapSum([ a \in piacqs |-> Q[a].sent[b] ])
+        received == Q[b].received
+    IN sent = received
+
+RECURSIVE AppearsQuiescent(_,_)
+AppearsQuiescent(b, Q) ==
+    /\ AppearsBlocked(b,Q)
+    /\ \A a \in ActorsOf(Q) :
+        AppearsAcquainted(a,b,Q) =>
+        AppearsQuiescent(b,Q)
+
+UpwardClosed(Q) ==
+    \A a, b, c \in Actor : 
+    (/\ Q[a] # null 
+     /\ Q[c] # null
+     /\ Q[a].created[<<b,c>>] > 0
+    )
+    => Q[b] # null
+
+Safety == UpwardClosed(snapshots)
+    \*/\ UpwardClosed(snapshots)
+    \*/\ \A a \in ActorsOf(snapshots) :
+    \*    AppearsQuiescent(a, snapshots) => Quiescent(a)
 
 -----------------------------------------------------------------------------
 
