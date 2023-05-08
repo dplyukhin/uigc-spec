@@ -186,7 +186,7 @@ ActorsOf(Q) == { a \in Actor : Q[a] # null }
 AppearsAcquainted(b,c,Q) ==
     LET created == MapSum([ a \in ActorsOf(Q) |-> 
             Q[a].created[<<b,c>>]])
-        deactivated == Q[b].active[c]
+        deactivated == Q[b].deactivated[c]
     IN created > deactivated
 
 AppearsBlocked(b,Q) ==
@@ -213,7 +213,7 @@ UpwardClosed(Q) ==
 Safety ==
     UpwardClosed(snapshots)
     => \A a \in ActorsOf(snapshots) :
-        AppearsQuiescent(a, snapshots) => Quiescent(a)
+        AppearsQuiescent(a, snapshots) => Blocked(a)
 
 -----------------------------------------------------------------------------
 
