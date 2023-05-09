@@ -73,14 +73,16 @@ CreatedActors == { a \in Actor : actorState[a] # null }
 
 -----------------------------------------------------------------------------
 Idle(a) ==
+    /\ actorState[a] # null
     /\ actorState[a].status = "busy"
     /\ actorState' = [actorState EXCEPT ![a].status = "idle"]
     /\ UNCHANGED <<msgs,snapshots>>
 
 Spawn(a) == 
-    /\ actorState[a].status = "busy"
-    /\ \E b \in Actor :
-        /\ actorState[b] = null
+    /\ actorState[a] # null
+    /\ actorState[a].status = "busy" 
+    /\ \E b \in Actor : actorState[b] = null
+    /\ LET b == CHOOSE b \in Actor : actorState[b] = null IN
         /\ actorState' = [actorState EXCEPT 
             ![a].active[b] = 1,      \* Add child ref to parent state
             ![b] = initialState(b,a) 
@@ -88,6 +90,7 @@ Spawn(a) ==
         /\ UNCHANGED <<snapshots,msgs>>
 
 Deactivate(a) ==
+    /\ actorState[a] # null
     /\ actorState[a].status = "busy"
     /\ \E b \in Actor :
         LET active == actorState[a].active[b] 
@@ -101,6 +104,7 @@ Deactivate(a) ==
         /\ UNCHANGED <<msgs,snapshots>>
 
 Send(a) == 
+    /\ actorState[a] # null
     /\ actorState[a].status = "busy"
     /\ \E b \in Actor : 
        actorState[a].active[b] > 0 /\
@@ -121,6 +125,7 @@ Send(a) ==
         /\ UNCHANGED <<snapshots>>
 
 Receive(a) ==
+    /\ actorState[a] # null
     /\ actorState[a].status = "idle"
     /\ \E m \in msgs :
         /\ m.target = a 
@@ -128,7 +133,7 @@ Receive(a) ==
                active == [c \in Actor |-> 
                     IF c \in m.refs 
                     THEN actorState[a].active[c] + 1
-                    ELSE actorState[a].active[c] + 1]
+                    ELSE actorState[a].active[c]]
            IN
             /\ actorState' = [actorState EXCEPT 
                 ![a].active = active,
@@ -138,13 +143,14 @@ Receive(a) ==
             /\ UNCHANGED <<snapshots>>
 
 Snapshot(a) ==
+    /\ actorState[a] # null
     /\ snapshots[a] = null
     /\ snapshots' = [snapshots EXCEPT ![a] = actorState[a]]
     /\ UNCHANGED <<msgs,actorState>>
 
-Next == \E a \in CreatedActors : 
-    (Idle(a) \/ Spawn(a) \/ Deactivate(a) \/ Send(a) \/ Receive(a) \/ 
-     Snapshot(a))
+Next == \E a \in Actor : 
+    Idle(a) \/ Spawn(a) \/ Deactivate(a) \/ Send(a) \/ Receive(a) \/ 
+    Snapshot(a)
 
 -----------------------------------------------------------------------------
 
@@ -177,11 +183,14 @@ PotentialAcquaintance(a,b) ==
 RECURSIVE Quiescent(_)
 Quiescent(b) ==
     /\ Blocked(b)
-    /\ \A a \in Actor \ {b} : 
+    /\ \A a \in CreatedActors \ {b} : 
         PotentialAcquaintance(a,b) =>
         Quiescent(a)
 
 ActorsOf(Q) == { a \in Actor : Q[a] # null }
+
+EverAcquainted(b,c,Q) ==
+    \E a \in ActorsOf(Q) : Q[a].created[<<b,c>>] > 0
 
 AppearsAcquainted(b,c,Q) ==
     LET created == MapSum([ a \in ActorsOf(Q) |-> 
@@ -191,8 +200,8 @@ AppearsAcquainted(b,c,Q) ==
 
 AppearsBlocked(b,Q) ==
     Q[b].status = "idle" /\
-    LET piacqs == { a \in ActorsOf(Q) : AppearsAcquainted(a,b,Q) }
-        sent == MapSum([ a \in piacqs |-> Q[a].sent[b] ])
+    LET iacqs == { a \in ActorsOf(Q) : EverAcquainted(a,b,Q) }
+        sent == MapSum([ a \in iacqs |-> Q[a].sent[b] ])
         received == Q[b].received
     IN sent = received
 
@@ -213,7 +222,7 @@ UpwardClosed(Q) ==
 Safety ==
     UpwardClosed(snapshots)
     => \A a \in ActorsOf(snapshots) :
-        AppearsQuiescent(a, snapshots) => Blocked(a)
+        AppearsQuiescent(a, snapshots) => Quiescent(a)
 
 -----------------------------------------------------------------------------
 
