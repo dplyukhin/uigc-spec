@@ -1,2 +1,6 @@
 *.out
 states
+*.tex
+*.pdf
+*.aux
+*.dvi
