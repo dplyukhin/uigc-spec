@@ -83,7 +83,7 @@ Spawn(a) ==
         /\ actorState[b] = null
         /\ actorState' = [actorState EXCEPT 
             ![a].active[b] = 1,      \* Add child ref to parent state
-            ![b] = initialState(a,b) 
+            ![b] = initialState(b,a) 
             ]
         /\ UNCHANGED <<snapshots,msgs>>
 
@@ -201,7 +201,7 @@ AppearsQuiescent(b, Q) ==
     /\ AppearsBlocked(b,Q)
     /\ \A a \in ActorsOf(Q) \ {b} :
         AppearsAcquainted(a,b,Q) =>
-        AppearsQuiescent(b,Q)
+        AppearsQuiescent(a,Q)
 
 UpwardClosed(Q) ==
     \A a, b, c \in Actor : 
