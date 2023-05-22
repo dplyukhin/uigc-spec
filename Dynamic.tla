@@ -5,119 +5,116 @@ EXTENDS Integers, FiniteSets, Bags, TLC
 NOTES ON THIS MODULE
 
 - Exhaustive search is intractable for any execution long
-  enough to manifest a bug. So use `-simulate` to generate
+  enough to manifest a bug. So use '-simulate' to generate
   random executions.
 - If you find a bug, you want to try and find a small witness.
-  Best bet is to use `-simulate -depth N` to only search executions
-  of length up to `N`.
+  Best bet is to use '-simulate -depth N' to only search executions
+  of length up to N.
 *)
 
-CONSTANT 
-    Actor,  \* The names of participating actors
-    MAX_REFS    \* maximum number of refs in a message
+CONSTANT
+    ActorName    \* The names of participating actors.
 
 VARIABLE 
-    actorState,  \* actorState[a] is the state of actor `a'.
-    msgs,        \* msgs is the set of all undelivered messages.
-    snapshots    \* snapshots[a] is a snapshot of some actor's state
+    actors,      \* actors[a] is the state of actor `a'.
+    msgs,        \* msgs is the set of all `^undelivered^' messages.
+    snapshots    \* snapshots[a] is a snapshot of some actor's state.
 
-Perms == Permutations(Actor)
 -----------------------------------------------------------------------------
 Messages ==
-  [sender: Actor, target: Actor, id: Nat, refs : SUBSET Actor] 
+  [sender: ActorName, target: ActorName, id: Nat, refs : SUBSET ActorName] 
   (* A message is uniquely identified by the name of the sender, the name of the
   target, and the count of how many messages the sender sent to the target so 
   far. *)
 
 ActorState ==
     [ status   : {"busy", "idle"},
-      sent     : [Actor -> Nat],
+      sent     : [ActorName -> Nat],
       received : Nat,
-      active      : [Actor -> Nat],
-      deactivated : [Actor -> Nat],
-      created     : [Actor \X Actor -> Nat]
+      active      : [ActorName -> Nat],
+      deactivated : [ActorName -> Nat],
+      created     : [ActorName \X ActorName -> Nat]
     ]
 
 Null == [ type: {"null"} ]
 null == [type |-> "null"]
 
 TypeOK == 
-  /\ actorState \in [Actor -> ActorState \cup Null]
-  /\ snapshots \in [Actor -> ActorState \cup Null]
+  /\ actors \in [ActorName -> ActorState \cup Null]
+  /\ snapshots \in [ActorName -> ActorState \cup Null]
   /\ msgs \subseteq Messages
 
 initialState(self, parent) ==
     [
         status   |-> "busy", 
-        sent     |-> [b \in Actor |-> 0],
+        sent     |-> [b \in ActorName |-> 0],
         received |-> 0,
-        active   |-> [b \in Actor |-> IF b = self THEN 1 ELSE 0],
-        deactivated |-> [b \in Actor |-> 0],
-        created  |-> [<<a,b>> \in Actor \X Actor |-> 
+        active   |-> [b \in ActorName |-> IF b = self THEN 1 ELSE 0],
+        deactivated |-> [b \in ActorName |-> 0],
+        created  |-> [<<a,b>> \in ActorName \X ActorName |-> 
             IF (a = self \/ a = parent) /\ b = self THEN 1 ELSE 0]
     ]
         
 (* Initially, some actor exists and the rest do not. *)
 Init ==   
-    LET initialActor == CHOOSE a \in Actor: TRUE IN
-    /\ actorState = [a \in Actor |-> 
+    LET initialActor == CHOOSE a \in ActorName: TRUE IN
+    /\ actors = [a \in ActorName |-> 
             IF a = initialActor THEN initialState(a, null)
             ELSE null
         ]
-    /\ snapshots = [a \in Actor |-> null]
+    /\ snapshots = [a \in ActorName |-> null]
     /\ msgs = {}
 
 -----------------------------------------------------------------------------
 
-CreatedActors == { a \in Actor : actorState[a] # null }
+CreatedActors == { a \in ActorName : actors[a] # null }
 
 -----------------------------------------------------------------------------
 Idle(a) ==
-    /\ actorState[a] # null
-    /\ actorState[a].status = "busy"
-    /\ actorState' = [actorState EXCEPT ![a].status = "idle"]
+    /\ actors[a] # null
+    /\ actors[a].status = "busy"
+    /\ actors' = [actors EXCEPT ![a].status = "idle"]
     /\ UNCHANGED <<msgs,snapshots>>
 
 Spawn(a) == 
-    /\ actorState[a] # null
-    /\ actorState[a].status = "busy" 
-    /\ \E b \in Actor : actorState[b] = null
-    /\ LET b == CHOOSE b \in Actor : actorState[b] = null IN
-        /\ actorState' = [actorState EXCEPT 
+    /\ actors[a] # null
+    /\ actors[a].status = "busy" 
+    /\ \E b \in ActorName : actors[b] = null
+    /\ LET b == CHOOSE b \in ActorName : actors[b] = null IN
+        /\ actors' = [actors EXCEPT 
             ![a].active[b] = 1,      \* Add child ref to parent state
             ![b] = initialState(b,a) 
             ]
         /\ UNCHANGED <<snapshots,msgs>>
 
 Deactivate(a) ==
-    /\ actorState[a] # null
-    /\ actorState[a].status = "busy"
-    /\ \E b \in Actor :
-        LET active == actorState[a].active[b] 
-            deactivated == actorState[a].deactivated[b] 
+    /\ actors[a] # null
+    /\ actors[a].status = "busy"
+    /\ \E b \in ActorName :
+        LET active == actors[a].active[b] 
+            deactivated == actors[a].deactivated[b] 
         IN 
         /\ active > 0
-        /\ actorState' = [actorState EXCEPT 
+        /\ actors' = [actors EXCEPT 
             ![a].deactivated[b] = deactivated + active,
             ![a].active[b] = 0
             ]
         /\ UNCHANGED <<msgs,snapshots>>
 
 Send(a) == 
-    /\ actorState[a] # null
-    /\ actorState[a].status = "busy"
-    /\ \E b \in Actor : 
-       actorState[a].active[b] > 0 /\
-       \E refs \in SUBSET { c \in Actor : actorState[a].active[c] > 0 } :
-        Cardinality(refs) <= MAX_REFS /\
-        LET n == actorState[a].sent[b] 
-            created == [ <<x,y>> \in Actor \X Actor |-> 
+    /\ actors[a] # null
+    /\ actors[a].status = "busy"
+    /\ \E b \in ActorName : 
+       actors[a].active[b] > 0 /\
+       \E refs \in SUBSET { c \in ActorName : actors[a].active[c] > 0 } :
+        LET n == actors[a].sent[b] 
+            created == [ <<x,y>> \in ActorName \X ActorName |-> 
                 IF x = b /\ y \in refs 
-                THEN actorState[a].created[<<x,y>>] + 1
-                ELSE actorState[a].created[<<x,y>>]
+                THEN actors[a].created[<<x,y>>] + 1
+                ELSE actors[a].created[<<x,y>>]
                 ]
         IN
-        /\ actorState' = [actorState EXCEPT 
+        /\ actors' = [actors EXCEPT 
             ![a].sent[b] = (n + 1),
             ![a].created = created
             ]
@@ -125,17 +122,17 @@ Send(a) ==
         /\ UNCHANGED <<snapshots>>
 
 Receive(a) ==
-    /\ actorState[a] # null
-    /\ actorState[a].status = "idle"
+    /\ actors[a] # null
+    /\ actors[a].status = "idle"
     /\ \E m \in msgs :
         /\ m.target = a 
-        /\ LET n == actorState[a].received 
-               active == [c \in Actor |-> 
+        /\ LET n == actors[a].received 
+               active == [c \in ActorName |-> 
                     IF c \in m.refs 
-                    THEN actorState[a].active[c] + 1
-                    ELSE actorState[a].active[c]]
+                    THEN actors[a].active[c] + 1
+                    ELSE actors[a].active[c]]
            IN
-            /\ actorState' = [actorState EXCEPT 
+            /\ actors' = [actors EXCEPT 
                 ![a].active = active,
                 ![a].received = (n+1), 
                 ![a].status = "busy"]
@@ -143,12 +140,12 @@ Receive(a) ==
             /\ UNCHANGED <<snapshots>>
 
 Snapshot(a) ==
-    /\ actorState[a] # null
+    /\ actors[a] # null
     /\ snapshots[a] = null
-    /\ snapshots' = [snapshots EXCEPT ![a] = actorState[a]]
-    /\ UNCHANGED <<msgs,actorState>>
+    /\ snapshots' = [snapshots EXCEPT ![a] = actors[a]]
+    /\ UNCHANGED <<msgs,actors>>
 
-Next == \E a \in Actor : 
+Next == \E a \in ActorName : 
     Idle(a) \/ Spawn(a) \/ Deactivate(a) \/ Send(a) \/ Receive(a) \/ 
     Snapshot(a)
 
@@ -162,8 +159,8 @@ MapSum(map) == _MapSum(DOMAIN map, map)
 
 MessagesConsistent(a) == 
     LET 
-        received == actorState[a].received
-        sent == MapSum([ b \in CreatedActors |-> actorState[b].sent[a]])
+        received == actors[a].received
+        sent == MapSum([ b \in CreatedActors |-> actors[b].sent[a]])
         undelivered == Cardinality({ m \in msgs : m.target = a })
     IN received + undelivered = sent
 
@@ -171,11 +168,11 @@ AllMessagesConsistent ==
     \A a \in CreatedActors : MessagesConsistent(a)
 
 Blocked(a) == 
-    /\ actorState[a].status = "idle"
+    /\ actors[a].status = "idle"
     /\ { m \in msgs : m.target = a } = {}
 
 PotentialAcquaintance(a,b) ==
-    \/ actorState[a].active[b] > 0
+    \/ actors[a].active[b] > 0
     \/ \E m \in msgs : 
         /\ m.target = a
         /\ b \in m.refs
@@ -187,7 +184,7 @@ Quiescent(b) ==
         PotentialAcquaintance(a,b) =>
         Quiescent(a)
 
-ActorsOf(Q) == { a \in Actor : Q[a] # null }
+ActorsOf(Q) == { a \in ActorName : Q[a] # null }
 
 EverAcquainted(b,c,Q) ==
     \E a \in ActorsOf(Q) : Q[a].created[<<b,c>>] > 0
@@ -213,7 +210,7 @@ AppearsQuiescent(b, Q) ==
         AppearsQuiescent(a,Q)
 
 UpwardClosed(Q) ==
-    \A a, b, c \in Actor : 
+    \A a, b, c \in ActorName : 
     /\ Q[a] # null 
     /\ Q[c] # null
     /\ Q[a].created[<<b,c>>] > 0
