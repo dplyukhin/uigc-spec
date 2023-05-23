@@ -87,6 +87,8 @@ FreshActorName == IF \E a \in ActorName : actors[a] = null
                   THEN {CHOOSE a \in ActorName : actors[a] = null}
                   ELSE {}
 
+acqs(a) == { b \in ActorName : actors[a].active[b] > 0 }
+
 -----------------------------------------------------------------------------
 Idle ==
     \E a \in BusyActors :
@@ -102,20 +104,15 @@ Spawn ==
     /\ UNCHANGED <<snapshots,msgs>>
 
 Deactivate ==
-    \E a \in BusyActors : \E b \in ActorName :
-    LET active == actors[a].active[b] 
-        deactivated == actors[a].deactivated[b] 
-    IN 
-    /\ active > 0
+    \E a \in BusyActors : \E b \in acqs(a) :
     /\ actors' = [actors EXCEPT 
-        ![a].deactivated[b] = deactivated + active,
+        ![a].deactivated[b] = @ + actors[a].active[b],
         ![a].active[b] = 0
         ]
     /\ UNCHANGED <<msgs,snapshots>>
 
 Send == 
-    \E a \in BusyActors : \E b \in ActorName : actors[a].active[b] > 0 /\
-    \E refs \in SUBSET { c \in ActorName : actors[a].active[c] > 0 } :
+    \E a \in BusyActors : \E b \in acqs(a) : \E refs \in SUBSET acqs(a) :
     LET n == actors[a].sendCount[b] 
         created == [ <<x,y>> \in ActorName \X ActorName |-> 
             IF x = b /\ y \in refs 
@@ -182,7 +179,7 @@ Blocked(a) ==
     /\ BagSum(msgs, LAMBDA m : IF m.target = a THEN 1 ELSE 0) = 0
 
 PotentialAcquaintance(a,b) ==
-    \/ actors[a].active[b] > 0
+    \/ b \in acqs(a)
     \/ \E m \in BagToSet(msgs) : 
         /\ m.target = a
         /\ b \in m.refs
