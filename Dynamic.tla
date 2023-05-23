@@ -27,9 +27,9 @@ VARIABLE
 Message == [target: ActorName, refs : SUBSET ActorName] 
 
 ActorState ==
-    [ status   : {"busy", "idle"},
-      sent     : [ActorName -> Nat],
-      received : Nat,
+    [ status      : {"busy", "idle"},
+      sendCount   : [ActorName -> Nat],
+      recvCount   : Nat,
       active      : [ActorName -> Nat],
       deactivated : [ActorName -> Nat],
       created     : [ActorName \X ActorName -> Nat]
@@ -46,8 +46,8 @@ TypeOK ==
 initialState(self, parent) ==
     [
         status   |-> "busy", 
-        sent     |-> [b \in ActorName |-> 0],
-        received |-> 0,
+        sendCount     |-> [b \in ActorName |-> 0],
+        recvCount |-> 0,
         active   |-> [b \in ActorName |-> IF b = self THEN 1 ELSE 0],
         deactivated |-> [b \in ActorName |-> 0],
         created  |-> [<<a,b>> \in ActorName \X ActorName |-> 
@@ -106,7 +106,7 @@ Send(a) ==
     /\ \E b \in ActorName : 
        actors[a].active[b] > 0 /\
        \E refs \in SUBSET { c \in ActorName : actors[a].active[c] > 0 } :
-        LET n == actors[a].sent[b] 
+        LET n == actors[a].sendCount[b] 
             created == [ <<x,y>> \in ActorName \X ActorName |-> 
                 IF x = b /\ y \in refs 
                 THEN actors[a].created[<<x,y>>] + 1
@@ -114,7 +114,7 @@ Send(a) ==
                 ]
         IN
         /\ actors' = [actors EXCEPT 
-            ![a].sent[b] = (n + 1),
+            ![a].sendCount[b] = (n + 1),
             ![a].created = created
             ]
         (* Add this message to the msgs bag. *)
@@ -126,7 +126,7 @@ Receive(a) ==
     /\ actors[a].status = "idle"
     /\ \E m \in BagToSet(msgs) :
         /\ m.target = a 
-        /\ LET n == actors[a].received 
+        /\ LET n == actors[a].recvCount 
                active == [c \in ActorName |-> 
                     IF c \in m.refs 
                     THEN actors[a].active[c] + 1
@@ -134,7 +134,7 @@ Receive(a) ==
            IN
             /\ actors' = [actors EXCEPT 
                 ![a].active = active,
-                ![a].received = (n+1), 
+                ![a].recvCount = (n+1), 
                 ![a].status = "busy"]
             (* Remove m from the msgs bag. *)
             /\ msgs' = msgs (-) SetToBag({m})
@@ -163,10 +163,10 @@ LOCAL BagSum(B, F(_)) ==
 
 MessagesConsistent(a) == 
     LET 
-        received == actors[a].received
-        sent == MapSum([ b \in CreatedActors |-> actors[b].sent[a]])
+        recvCount == actors[a].recvCount
+        sendCount == MapSum([ b \in CreatedActors |-> actors[b].sendCount[a]])
         undelivered == BagSum(msgs, LAMBDA m : IF m.target = a THEN 1 ELSE 0)
-    IN received + undelivered = sent
+    IN recvCount + undelivered = sendCount
 
 AllMessagesConsistent == 
     \A a \in CreatedActors : MessagesConsistent(a)
@@ -202,9 +202,9 @@ AppearsAcquainted(b,c,Q) ==
 AppearsBlocked(b,Q) ==
     Q[b].status = "idle" /\
     LET iacqs == { a \in ActorsOf(Q) : EverAcquainted(a,b,Q) }
-        sent == MapSum([ a \in iacqs |-> Q[a].sent[b] ])
-        received == Q[b].received
-    IN sent = received
+        sendCount == MapSum([ a \in iacqs |-> Q[a].sendCount[b] ])
+        recvCount == Q[b].recvCount
+    IN sendCount = recvCount
 
 RECURSIVE AppearsQuiescent(_,_)
 AppearsQuiescent(b, Q) ==
