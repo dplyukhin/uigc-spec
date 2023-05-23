@@ -79,89 +79,82 @@ Init ==
 
 -----------------------------------------------------------------------------
 
-CreatedActors == { a \in ActorName : actors[a] # null }
+CreatedActors  == { a \in ActorName : actors[a] # null }
+BusyActors     == { a \in CreatedActors : actors[a].status = "busy" }
+IdleActors     == { a \in CreatedActors : actors[a].status = "idle" }
+
+FreshActorName == IF \E a \in ActorName : actors[a] = null 
+                  THEN {CHOOSE a \in ActorName : actors[a] = null}
+                  ELSE {}
 
 -----------------------------------------------------------------------------
-Idle(a) ==
-    /\ actors[a] # null
-    /\ actors[a].status = "busy"
+Idle ==
+    \E a \in BusyActors :
     /\ actors' = [actors EXCEPT ![a].status = "idle"]
     /\ UNCHANGED <<msgs,snapshots>>
 
-Spawn(a) == 
-    /\ actors[a] # null
-    /\ actors[a].status = "busy" 
-    /\ \E b \in ActorName : actors[b] = null
-    /\ LET b == CHOOSE b \in ActorName : actors[b] = null IN
-        /\ actors' = [actors EXCEPT 
-            ![a].active[b] = 1,      \* Add child ref to parent state
-            ![b] = initialState(b,a) 
-            ]
-        /\ UNCHANGED <<snapshots,msgs>>
+Spawn == 
+    \E a \in BusyActors : \E b \in FreshActorName :
+    /\ actors' = [actors EXCEPT 
+        ![a].active[b] = 1,      \* Add child ref to parent state
+        ![b] = initialState(b,a) 
+        ]
+    /\ UNCHANGED <<snapshots,msgs>>
 
-Deactivate(a) ==
-    /\ actors[a] # null
-    /\ actors[a].status = "busy"
-    /\ \E b \in ActorName :
-        LET active == actors[a].active[b] 
-            deactivated == actors[a].deactivated[b] 
-        IN 
-        /\ active > 0
-        /\ actors' = [actors EXCEPT 
-            ![a].deactivated[b] = deactivated + active,
-            ![a].active[b] = 0
-            ]
-        /\ UNCHANGED <<msgs,snapshots>>
+Deactivate ==
+    \E a \in BusyActors : \E b \in ActorName :
+    LET active == actors[a].active[b] 
+        deactivated == actors[a].deactivated[b] 
+    IN 
+    /\ active > 0
+    /\ actors' = [actors EXCEPT 
+        ![a].deactivated[b] = deactivated + active,
+        ![a].active[b] = 0
+        ]
+    /\ UNCHANGED <<msgs,snapshots>>
 
-Send(a) == 
-    /\ actors[a] # null
-    /\ actors[a].status = "busy"
-    /\ \E b \in ActorName : 
-       actors[a].active[b] > 0 /\
-       \E refs \in SUBSET { c \in ActorName : actors[a].active[c] > 0 } :
-        LET n == actors[a].sendCount[b] 
-            created == [ <<x,y>> \in ActorName \X ActorName |-> 
-                IF x = b /\ y \in refs 
-                THEN actors[a].created[<<x,y>>] + 1
-                ELSE actors[a].created[<<x,y>>]
-                ]
+Send == 
+    \E a \in BusyActors : \E b \in ActorName : actors[a].active[b] > 0 /\
+    \E refs \in SUBSET { c \in ActorName : actors[a].active[c] > 0 } :
+    LET n == actors[a].sendCount[b] 
+        created == [ <<x,y>> \in ActorName \X ActorName |-> 
+            IF x = b /\ y \in refs 
+            THEN actors[a].created[<<x,y>>] + 1
+            ELSE actors[a].created[<<x,y>>]
+            ]
+    IN
+    /\ actors' = [actors EXCEPT 
+        ![a].sendCount[b] = (n + 1),
+        ![a].created = created
+        ]
+    (* Add this message to the msgs bag. *)
+    /\ msgs' = msgs (+) SetToBag({[target |-> b, refs |-> refs]})
+    /\ UNCHANGED <<snapshots>>
+
+Receive ==
+    \E a \in IdleActors : \E m \in BagToSet(msgs) :
+    /\ m.target = a 
+    /\ LET n == actors[a].recvCount 
+            active == [c \in ActorName |-> 
+                IF c \in m.refs 
+                THEN actors[a].active[c] + 1
+                ELSE actors[a].active[c]]
         IN
         /\ actors' = [actors EXCEPT 
-            ![a].sendCount[b] = (n + 1),
-            ![a].created = created
-            ]
-        (* Add this message to the msgs bag. *)
-        /\ msgs' = msgs (+) SetToBag({[target |-> b, refs |-> refs]})
-        /\ UNCHANGED <<snapshots>>
+            ![a].active = active,
+            ![a].recvCount = (n+1), 
+            ![a].status = "busy"]
+        (* Remove m from the msgs bag. *)
+        /\ msgs' = msgs (-) SetToBag({m})
+    /\ UNCHANGED <<snapshots>>
 
-Receive(a) ==
-    /\ actors[a] # null
-    /\ actors[a].status = "idle"
-    /\ \E m \in BagToSet(msgs) :
-        /\ m.target = a 
-        /\ LET n == actors[a].recvCount 
-               active == [c \in ActorName |-> 
-                    IF c \in m.refs 
-                    THEN actors[a].active[c] + 1
-                    ELSE actors[a].active[c]]
-           IN
-            /\ actors' = [actors EXCEPT 
-                ![a].active = active,
-                ![a].recvCount = (n+1), 
-                ![a].status = "busy"]
-            (* Remove m from the msgs bag. *)
-            /\ msgs' = msgs (-) SetToBag({m})
-            /\ UNCHANGED <<snapshots>>
-
-Snapshot(a) ==
-    /\ actors[a] # null
+Snapshot == 
+    \E a \in CreatedActors :
     /\ snapshots[a] = null
     /\ snapshots' = [snapshots EXCEPT ![a] = actors[a]]
     /\ UNCHANGED <<msgs,actors>>
 
-Next == \E a \in ActorName : 
-    Idle(a) \/ Spawn(a) \/ Deactivate(a) \/ Send(a) \/ Receive(a) \/ 
-    Snapshot(a)
+Next == Idle \/ Spawn \/ Deactivate \/ Send \/ Receive \/ Snapshot
 
 -----------------------------------------------------------------------------
 
