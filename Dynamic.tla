@@ -20,39 +20,52 @@ VARIABLE
     msgs,        \* msgs is a bag of all `^undelivered^' messages.
     snapshots    \* snapshots[a] is a snapshot of some actor's state.
 
+(* `null' is an arbitrary value used to signal that an expression was undefined. *)
+CONSTANT null
+
 -----------------------------------------------------------------------------
 (* A message consists of (a) the name of the destination actor, and (b) a set
    of references to other actors. Any other data a message could contain is 
    irrelevant for our purposes. *)
 Message == [target: ActorName, refs : SUBSET ActorName] 
 
-ActorState ==
-    [ status      : {"busy", "idle"},
-      sendCount   : [ActorName -> Nat],
-      recvCount   : Nat,
-      active      : [ActorName -> Nat],
-      deactivated : [ActorName -> Nat],
-      created     : [ActorName \X ActorName -> Nat]
-    ]
+(*
+ActorState represents the GC-relevant state of an actor.
+- status indicates whether the actor is currently processing a message.
+- recvCount is the number of messages that this actor has received.
+- sendCount[b] is the number of messages this actor has sent to b.
+- active[b] is the number of active references to b in the state.
+- deactivated[b] is the number of references to b that have been deactivated.
+- created[b,c] is the number of references to c that have been sent to b.
+*)
+ActorState == [ 
+    status      : {"busy", "idle"},
+    recvCount   : Nat,
+    sendCount   : [ActorName -> Nat],
+    active      : [ActorName -> Nat],
+    deactivated : [ActorName -> Nat],
+    created     : [ActorName \X ActorName -> Nat]
+]
 
-Null == [ type: {"null"} ]
-null == [type |-> "null"]
-
+(*
+- actors is a partial mapping from actor names to actor states.
+- snapshots is also a partial mapping from actor names to actor states.
+- msgs is a bag of messages.
+*)
 TypeOK == 
-  /\ actors \in [ActorName -> ActorState \cup Null]
-  /\ snapshots \in [ActorName -> ActorState \cup Null]
+  /\ actors         \in [ActorName -> ActorState \cup {null}]
+  /\ snapshots      \in [ActorName -> ActorState \cup {null}]
   /\ BagToSet(msgs) \subseteq Message
 
-initialState(self, parent) ==
-    [
-        status   |-> "busy", 
-        sendCount     |-> [b \in ActorName |-> 0],
-        recvCount |-> 0,
-        active   |-> [b \in ActorName |-> IF b = self THEN 1 ELSE 0],
-        deactivated |-> [b \in ActorName |-> 0],
-        created  |-> [<<a,b>> \in ActorName \X ActorName |-> 
-            IF (a = self \/ a = parent) /\ b = self THEN 1 ELSE 0]
-    ]
+initialState(self, parent) == [
+    status      |-> "busy", 
+    sendCount   |-> [b \in ActorName |-> 0],
+    recvCount   |-> 0,
+    active      |-> [b \in ActorName |-> IF b = self THEN 1 ELSE 0],
+    deactivated |-> [b \in ActorName |-> 0],
+    created     |-> [<<a,b>> \in ActorName \X ActorName |-> 
+        IF (a = self \/ a = parent) /\ b = self THEN 1 ELSE 0]
+]
         
 (* Initially, some actor exists and the rest do not. *)
 Init ==   
