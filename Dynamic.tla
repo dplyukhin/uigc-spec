@@ -17,15 +17,14 @@ CONSTANT
 
 VARIABLE 
     actors,      \* actors[a] is the state of actor `a'.
-    msgs,        \* msgs is the set of all `^undelivered^' messages.
+    msgs,        \* msgs is a bag of all `^undelivered^' messages.
     snapshots    \* snapshots[a] is a snapshot of some actor's state.
 
 -----------------------------------------------------------------------------
-Messages ==
-  [sender: ActorName, target: ActorName, id: Nat, refs : SUBSET ActorName] 
-  (* A message is uniquely identified by the name of the sender, the name of the
-  target, and the count of how many messages the sender sent to the target so 
-  far. *)
+(* A message consists of (a) the name of the destination actor, and (b) a set
+   of references to other actors. Any other data a message could contain is 
+   irrelevant for our purposes. *)
+Message == [target: ActorName, refs : SUBSET ActorName] 
 
 ActorState ==
     [ status   : {"busy", "idle"},
@@ -42,7 +41,7 @@ null == [type |-> "null"]
 TypeOK == 
   /\ actors \in [ActorName -> ActorState \cup Null]
   /\ snapshots \in [ActorName -> ActorState \cup Null]
-  /\ msgs \subseteq Messages
+  /\ BagToSet(msgs) \subseteq Message
 
 initialState(self, parent) ==
     [
@@ -63,7 +62,7 @@ Init ==
             ELSE null
         ]
     /\ snapshots = [a \in ActorName |-> null]
-    /\ msgs = {}
+    /\ msgs = EmptyBag
 
 -----------------------------------------------------------------------------
 
@@ -118,13 +117,14 @@ Send(a) ==
             ![a].sent[b] = (n + 1),
             ![a].created = created
             ]
-        /\ msgs' = msgs \cup {[sender |-> a, target |-> b, id |-> (n + 1), refs |-> refs]}
+        (* Add this message to the msgs bag. *)
+        /\ msgs' = msgs (+) SetToBag({[target |-> b, refs |-> refs]})
         /\ UNCHANGED <<snapshots>>
 
 Receive(a) ==
     /\ actors[a] # null
     /\ actors[a].status = "idle"
-    /\ \E m \in msgs :
+    /\ \E m \in BagToSet(msgs) :
         /\ m.target = a 
         /\ LET n == actors[a].received 
                active == [c \in ActorName |-> 
@@ -136,7 +136,8 @@ Receive(a) ==
                 ![a].active = active,
                 ![a].received = (n+1), 
                 ![a].status = "busy"]
-            /\ msgs' = msgs \ {m}
+            (* Remove m from the msgs bag. *)
+            /\ msgs' = msgs (-) SetToBag({m})
             /\ UNCHANGED <<snapshots>>
 
 Snapshot(a) ==
@@ -157,11 +158,14 @@ _MapSum(dom, map) == IF dom = {} THEN 0 ELSE
     map[x] + _MapSum(dom \ {x}, map)
 MapSum(map) == _MapSum(DOMAIN map, map)
 
+LOCAL BagSum(B, F(_)) ==
+    CopiesIn(1, BagOfAll(F, B))
+
 MessagesConsistent(a) == 
     LET 
         received == actors[a].received
         sent == MapSum([ b \in CreatedActors |-> actors[b].sent[a]])
-        undelivered == Cardinality({ m \in msgs : m.target = a })
+        undelivered == BagSum(msgs, LAMBDA m : IF m.target = a THEN 1 ELSE 0)
     IN received + undelivered = sent
 
 AllMessagesConsistent == 
@@ -169,11 +173,11 @@ AllMessagesConsistent ==
 
 Blocked(a) == 
     /\ actors[a].status = "idle"
-    /\ { m \in msgs : m.target = a } = {}
+    /\ BagSum(msgs, LAMBDA m : IF m.target = a THEN 1 ELSE 0) = 0
 
 PotentialAcquaintance(a,b) ==
     \/ actors[a].active[b] > 0
-    \/ \E m \in msgs : 
+    \/ \E m \in BagToSet(msgs) : 
         /\ m.target = a
         /\ b \in m.refs
 
