@@ -241,6 +241,35 @@ Safety ==
     => \A a \in appearsQuiescent(snapshots) :
         Quiescent(a)
 
+(* A snapshot from actor `a' is recent enough for actor `b' if its send count,
+   deactivated count, and created count regarding `b' are all up to date.
+ *)
+RecentEnough(a, b) ==
+    /\ a \in pdom(snapshots)
+    /\ actors[a].active[b] = snapshots[a].active[b]
+    /\ actors[a].deactivated[b] = snapshots[a].deactivated[b]
+    /\ \A c \in ActorName : actors[a].created[b,c] = snapshots[a].created[b,c]
+    /\ \A c \in ActorName : actors[a].created[c,b] = snapshots[a].created[c,b]
+
+SnapshotUpToDate(a) == actors[a] = snapshots[a]
+
+(* A set of snapshots is sufficient for b if:
+   1. b's snapshot is up to date;
+   2. The snapshots of all b's historical inverse acquaintances are recent enough for a;
+   3. The snapshots are sufficient for all of b's potential inverse acquaintances.
+ *)
+RECURSIVE SnapshotsSufficient(_)
+SnapshotsSufficient(b) == 
+    /\ SnapshotUpToDate(b)
+    /\ \A a \in historicalIAcqs(b, snapshots) : RecentEnough(a,b)
+    /\ \A a \in piacqs(b) \ {b} : SnapshotsSufficient(a)
+
+(* If an actor is garbage and its snapshot is up to date and the snapshots of
+   all its historical inverse acquaintances are recent enough and 
+ *)
+Liveness == \A a \in pdom(actors) : 
+    Quiescent(a) /\ SnapshotsSufficient(a) => a \in appearsQuiescent(snapshots)
+
 -----------------------------------------------------------------------------
 
 ====
