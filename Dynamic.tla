@@ -191,7 +191,7 @@ apparentAcqs(b, S)   == { c \in ActorName :
 apparentIAcqs(b, S)  == { a \in ActorName : b \in apparentAcqs(a, S) }
 appearsBlocked(S)    == { b \in pdom(S) :
                           S[b].status = "idle" /\ 
-                          apparentIAcqs(b,S) \subseteq pdom(S) /\
+                          historicalAcqs(b,S) \subseteq pdom(S) /\
                           LET sent == sum([ a \in historicalAcqs(b,S) |-> S[a].sendCount[b] ])
                               received == S[b].recvCount
                           IN sent = received
@@ -244,3 +244,8 @@ Safety ==
 -----------------------------------------------------------------------------
 
 ====
+
+1. spawn b 
+2. a sends self refs to a,b
+3. a go idle
+4. a snap
