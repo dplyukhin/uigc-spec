@@ -35,6 +35,12 @@ map1 ++ map2 == [ a \in DOMAIN map1 |-> IF a \in DOMAIN map2
 put(bag, x)    == bag (+) SetToBag({x})
 remove(bag, x) == bag (-) SetToBag({x})
 
+(* Computes the sum `^$\sum_{x \in dom(f)} f(x)$^'. *)
+RECURSIVE sumOver(_, _)
+sumOver(dom, map) == IF dom = {} THEN 0 ELSE 
+    LET x == CHOOSE x \in dom: TRUE IN
+    map[x] + sumOver(dom \ {x}, map)
+sum(map) == sumOver(DOMAIN map, map)
 
 -----------------------------------------------------------------------------
 (* A message consists of (a) the name of the destination actor, and (b) a set
@@ -140,7 +146,7 @@ Send ==
     \E a \in BusyActors : \E b \in acqs(a) : \E refs \in SUBSET acqs(a) :
     /\ actors' = [actors EXCEPT 
         ![a].sendCount[b] = @ + 1,
-        ![a].created = @ ++ [ <<x,y>> \in {b} \X refs |-> 1 ]
+        ![a].created = @ ++ [ x, y \in {b} \X refs |-> 1 ]
         ]
     (* Add this message to the msgs bag. *)
     /\ msgs' = put(msgs, [target |-> b, refs |-> refs])
@@ -166,25 +172,6 @@ Next == Idle \/ Spawn \/ Deactivate \/ Send \/ Receive \/ Snapshot
 
 -----------------------------------------------------------------------------
 
-RECURSIVE _MapSum(_, _)
-_MapSum(dom, map) == IF dom = {} THEN 0 ELSE 
-    LET x == CHOOSE x \in dom: TRUE IN
-    map[x] + _MapSum(dom \ {x}, map)
-MapSum(map) == _MapSum(DOMAIN map, map)
-
-LOCAL BagSum(B, F(_)) ==
-    CopiesIn(1, BagOfAll(F, B))
-
-MessagesConsistent(a) == 
-    LET 
-        recvCount == actors[a].recvCount
-        sendCount == MapSum([ b \in CreatedActors |-> actors[b].sendCount[a]])
-        undelivered == BagSum(msgs, LAMBDA m : IF m.target = a THEN 1 ELSE 0)
-    IN recvCount + undelivered = sendCount
-
-AllMessagesConsistent == 
-    \A a \in CreatedActors : MessagesConsistent(a)
-
 Blocked(a) == actors[a].status = "idle" /\ msgsTo(a) = {}
 
 RECURSIVE Quiescent(_)
@@ -192,19 +179,24 @@ Quiescent(b) == Blocked(b) /\ \A a \in piacqs(b) \ {b} : Quiescent(a)
 
 ActorsOf(Q) == { a \in ActorName : Q[a] # null }
 
+(* The domain over which the partial function Q is defined. *)
+pdom(Q) == { a \in DOMAIN Q : Q[a] # null }
+
+historicalAcqs(b, Q) == { c \in ActorName : \E a \in pdom(Q) : Q[a].created[b, c] > 0 }
+
 EverAcquainted(b,c,Q) ==
-    \E a \in ActorsOf(Q) : Q[a].created[<<b,c>>] > 0
+    \E a \in ActorsOf(Q) : Q[a].created[b, c] > 0
 
 AppearsAcquainted(b,c,Q) ==
-    LET created == MapSum([ a \in ActorsOf(Q) |-> 
-            Q[a].created[<<b,c>>]])
+    LET created == sum([ a \in ActorsOf(Q) |-> 
+            Q[a].created[b, c]])
         deactivated == Q[b].deactivated[c]
     IN created > deactivated
 
 AppearsBlocked(b,Q) ==
     Q[b].status = "idle" /\
     LET iacqs == { a \in ActorsOf(Q) : EverAcquainted(a,b,Q) }
-        sendCount == MapSum([ a \in iacqs |-> Q[a].sendCount[b] ])
+        sendCount == sum([ a \in iacqs |-> Q[a].sendCount[b] ])
         recvCount == Q[b].recvCount
     IN sendCount = recvCount
 
@@ -219,7 +211,7 @@ UpwardClosed(Q) ==
     \A a, b, c \in ActorName : 
     /\ Q[a] # null 
     /\ Q[c] # null
-    /\ Q[a].created[<<b,c>>] > 0
+    /\ Q[a].created[b, c] > 0
     => Q[b] # null
 
 Safety ==
