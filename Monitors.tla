@@ -86,6 +86,23 @@ Next == D!Idle \/ D!Deactivate \/ D!Send \/ D!Receive \/ D!Snapshot \/
 
 -----------------------------------------------------------------------------
 
-Safety == D!AppearsQuiescent \subseteq Quiescent
+(* The previous safety property no longer holds because actors can now become
+   busy by receiving signals from crashed actors or messages from external actors. *)
+OldSafety == D!AppearsQuiescent \subseteq Quiescent
+
+appearsMonitoredBy(a) == snapshots[a].monitored
+AppearsReceptionist == { a \in pdom(snapshots) : ~snapshots[a].isReceptionist }
+
+AppearsQuiescent == 
+    LET RECURSIVE actorAppearsQuiescent(_)
+        actorAppearsQuiescent(b) ==
+            /\ ~snapshots[b].isReceptionist
+            /\ b \in D!AppearsBlocked
+            /\ \A a \in (D!apparentIAcqs(b) \union snapshots[b].monitored) \ {b} : 
+                /\ a \in pdom(snapshots)
+                /\ actorAppearsQuiescent(a)
+    IN { a \in pdom(snapshots) : actorAppearsQuiescent(a) }
+
+Safety == AppearsQuiescent \subseteq Quiescent
 
 ====
