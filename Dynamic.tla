@@ -103,10 +103,7 @@ Init ==
 
 -----------------------------------------------------------------------------
 
-BusyActors     == { a \in pdom(actors) : actors[a].status = "busy" }
-IdleActors     == { a \in pdom(actors) : actors[a].status = "idle" }
-
-(* TLA-specific mechanism for deterministically picking a fresh actor name.
+(* TLA+ mechanism for deterministically picking a fresh actor name.
    If ActorName is a finite set and all names have been exhausted, this operator
    produces the empty set. *)
 FreshActorName == IF \E a \in ActorName : actors[a] = null 
@@ -117,6 +114,14 @@ msgsTo(a)  == { m \in BagToSet(msgs) : m.target = a }
 acqs(a)    == { b \in pdom(actors) : actors[a].active[b] > 0 }
 pacqs(a)   == { b \in pdom(actors) : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
 piacqs(b)  == { a \in pdom(actors) : b \in pacqs(a) }
+
+BusyActors == { a \in pdom(actors) : actors[a].status = "busy" }
+IdleActors == { a \in pdom(actors) : actors[a].status = "idle" }
+Blocked    == { a \in IdleActors   : msgsTo(a) = {} }
+Quiescent  == 
+    LET RECURSIVE isQuiescent(_)
+        isQuiescent(b) == b \in Blocked /\ \A a \in piacqs(b) \ {b} : isQuiescent(a)
+    IN { a \in pdom(actors) : isQuiescent(a) }
 
 -----------------------------------------------------------------------------
 Idle ==
@@ -174,13 +179,6 @@ Next == Idle \/ Spawn \/ Deactivate \/ Send \/ Receive \/ Snapshot
 
 -----------------------------------------------------------------------------
 
-Blocked == { a \in pdom(actors) : actors[a].status = "idle" /\ msgsTo(a) = {} }
-
-RECURSIVE isQuiescent(_)
-isQuiescent(b) == b \in Blocked /\ \A a \in piacqs(b) \ {b} : isQuiescent(a)
-
-Quiescent == { a \in pdom(actors) : isQuiescent(a) }
-
 historicalIAcqs(c) == { b \in ActorName : 
                         \E a \in pdom(snapshots) : snapshots[a].created[b, c] > 0 }
 apparentAcqs(b)    == { c \in ActorName :
@@ -197,14 +195,14 @@ AppearsBlocked     == { b \in pdom(snapshots) :
                         IN sent = received
                       }
 
-RECURSIVE actorAppearsQuiescent(_)
-actorAppearsQuiescent(b) ==
-    /\ b \in AppearsBlocked
-    /\ \A a \in apparentIAcqs(b) \ {b} : 
-        /\ a \in pdom(snapshots)
-        /\ actorAppearsQuiescent(a)
-
-AppearsQuiescent == { a \in pdom(snapshots) : actorAppearsQuiescent(a) }
+AppearsQuiescent == 
+    LET RECURSIVE actorAppearsQuiescent(_)
+        actorAppearsQuiescent(b) ==
+            /\ b \in AppearsBlocked
+            /\ \A a \in apparentIAcqs(b) \ {b} : 
+                /\ a \in pdom(snapshots)
+                /\ actorAppearsQuiescent(a)
+    IN { a \in pdom(snapshots) : actorAppearsQuiescent(a) }
 
 Safety == AppearsQuiescent \subseteq Quiescent
 
