@@ -1,5 +1,5 @@
 ---- MODULE Dynamic ----
-EXTENDS Integers, FiniteSets, Bags, TLC
+EXTENDS Integers, FiniteSets, Bags
 
 (*
 NOTES ON THIS MODULE
@@ -79,15 +79,21 @@ Init ==
 
 -----------------------------------------------------------------------------
 
-CreatedActors  == { a \in ActorName : actors[a] # null }
+CreatedActors  == { a \in ActorName     : actors[a] # null }
 BusyActors     == { a \in CreatedActors : actors[a].status = "busy" }
 IdleActors     == { a \in CreatedActors : actors[a].status = "idle" }
 
+(* TLA-specific mechanism for deterministically picking a fresh actor name.
+   If ActorName is a finite set and all names have been exhausted, this operator
+   produces the empty set. *)
 FreshActorName == IF \E a \in ActorName : actors[a] = null 
                   THEN {CHOOSE a \in ActorName : actors[a] = null}
                   ELSE {}
 
-acqs(a) == { b \in ActorName : actors[a].active[b] > 0 }
+msgsTo(a)  == { m \in BagToSet(msgs) : m.target = a }
+acqs(a)    == { b \in ActorName : actors[a].active[b] > 0 }
+pacqs(a)   == { b \in ActorName : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
+piacqs(b)  == { a \in CreatedActors : b \in pacqs(a) }
 
 -----------------------------------------------------------------------------
 Idle ==
@@ -174,22 +180,10 @@ MessagesConsistent(a) ==
 AllMessagesConsistent == 
     \A a \in CreatedActors : MessagesConsistent(a)
 
-Blocked(a) == 
-    /\ actors[a].status = "idle"
-    /\ BagSum(msgs, LAMBDA m : IF m.target = a THEN 1 ELSE 0) = 0
-
-PotentialAcquaintance(a,b) ==
-    \/ b \in acqs(a)
-    \/ \E m \in BagToSet(msgs) : 
-        /\ m.target = a
-        /\ b \in m.refs
+Blocked(a) == actors[a].status = "idle" /\ msgsTo(a) = {}
 
 RECURSIVE Quiescent(_)
-Quiescent(b) ==
-    /\ Blocked(b)
-    /\ \A a \in CreatedActors \ {b} : 
-        PotentialAcquaintance(a,b) =>
-        Quiescent(a)
+Quiescent(b) == Blocked(b) /\ \A a \in piacqs(b) \ {b} : Quiescent(a)
 
 ActorsOf(Q) == { a \in ActorName : Q[a] # null }
 
