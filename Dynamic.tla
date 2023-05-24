@@ -268,7 +268,7 @@ SnapshotsSufficient(b) ==
    all its historical inverse acquaintances are recent enough and 
  *)
 Liveness == \A a \in pdom(actors) : 
-    Quiescent(a) /\ SnapshotsSufficient(a) => a \in appearsQuiescent(snapshots)
+    Quiescent(a) => (SnapshotsSufficient(a) => a \in appearsQuiescent(snapshots))
 
 -----------------------------------------------------------------------------
 
