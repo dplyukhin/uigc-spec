@@ -182,64 +182,32 @@ ActorsOf(S) == { a \in ActorName : S[a] # null }
 (* The domain over which the partial function S is defined. *)
 pdom(S) == { a \in DOMAIN S : S[a] # null }
 
-historicalIAcqs(c, S) == { b \in ActorName : \E a \in pdom(S) : S[a].created[b, c] > 0 }
-apparentAcqs(b, S)    == { c \in ActorName :
-                           LET created     == sum([ a \in pdom(S) |-> S[a].created[b, c]])
-                               deactivated == IF b \in pdom(S) THEN S[b].deactivated[c] ELSE 0
-                           IN created > deactivated
-                         }
-apparentIAcqs(b, S)   == { a \in ActorName : b \in apparentAcqs(a, S) }
-appearsBlocked(S)     == { b \in pdom(S) :
-                           S[b].status = "idle" /\ 
-                           historicalIAcqs(b,S) \subseteq pdom(S) /\
-                           LET sent == sum([ a \in historicalIAcqs(b,S) |-> S[a].sendCount[b] ])
-                               received == S[b].recvCount
-                           IN sent = received
-                        }
+historicalIAcqs(c) == { b \in ActorName : 
+                        \E a \in pdom(snapshots) : snapshots[a].created[b, c] > 0 }
+apparentAcqs(b)    == { c \in ActorName :
+                        LET created     == sum([ a \in pdom(snapshots) |-> snapshots[a].created[b, c]])
+                            deactivated == IF b \in pdom(snapshots) THEN snapshots[b].deactivated[c] ELSE 0
+                        IN created > deactivated
+                      }
+apparentIAcqs(b)   == { a \in ActorName : b \in apparentAcqs(a) }
+AppearsBlocked     == { b \in pdom(snapshots) :
+                        snapshots[b].status = "idle" /\ 
+                        historicalIAcqs(b) \subseteq pdom(snapshots) /\
+                        LET sent == sum([ a \in historicalIAcqs(b) |-> snapshots[a].sendCount[b] ])
+                            received == snapshots[b].recvCount
+                        IN sent = received
+                      }
 
-RECURSIVE actorAppearsQuiescent(_,_)
-actorAppearsQuiescent(b, S) ==
-    /\ b \in appearsBlocked(S)
-    /\ \A a \in apparentIAcqs(b, S) \ {b} : 
-        /\ a \in pdom(S)
-        /\ actorAppearsQuiescent(a, S)
+RECURSIVE actorAppearsQuiescent(_)
+actorAppearsQuiescent(b) ==
+    /\ b \in AppearsBlocked
+    /\ \A a \in apparentIAcqs(b) \ {b} : 
+        /\ a \in pdom(snapshots)
+        /\ actorAppearsQuiescent(a)
 
-appearsQuiescent(S) == { a \in pdom(S) : actorAppearsQuiescent(a, S) }
+AppearsQuiescent == { a \in pdom(snapshots) : actorAppearsQuiescent(a) }
 
-EverAcquainted(b,c,Q) ==
-    \E a \in ActorsOf(Q) : Q[a].created[b, c] > 0
-
-AppearsAcquainted(b,c,Q) ==
-    LET created == sum([ a \in ActorsOf(Q) |-> 
-            Q[a].created[b, c]])
-        deactivated == Q[b].deactivated[c]
-    IN created > deactivated
-
-AppearsBlocked(b,Q) ==
-    Q[b].status = "idle" /\
-    LET iacqs == { a \in ActorsOf(Q) : EverAcquainted(a,b,Q) }
-        sendCount == sum([ a \in iacqs |-> Q[a].sendCount[b] ])
-        recvCount == Q[b].recvCount
-    IN sendCount = recvCount
-
-RECURSIVE AppearsQuiescent(_,_)
-AppearsQuiescent(b, Q) ==
-    /\ AppearsBlocked(b,Q)
-    /\ \A a \in ActorsOf(Q) \ {b} :
-        AppearsAcquainted(a,b,Q) =>
-        AppearsQuiescent(a,Q)
-
-UpwardClosed(Q) ==
-    \A a, b, c \in ActorName : 
-    /\ Q[a] # null 
-    /\ Q[c] # null
-    /\ Q[a].created[b, c] > 0
-    => Q[b] # null
-
-Safety ==
-    UpwardClosed(snapshots)
-    => \A a \in appearsQuiescent(snapshots) :
-        Quiescent(a)
+Safety == \A a \in AppearsQuiescent : Quiescent(a)
 
 (* A snapshot from actor `a' is recent enough for actor `b' if its send count,
    deactivated count, and created count regarding `b' are all up to date.
@@ -261,14 +229,14 @@ SnapshotUpToDate(a) == actors[a] = snapshots[a]
 RECURSIVE SnapshotsSufficient(_)
 SnapshotsSufficient(b) == 
     /\ SnapshotUpToDate(b)
-    /\ \A a \in historicalIAcqs(b, snapshots) : RecentEnough(a,b)
+    /\ \A a \in historicalIAcqs(b) : RecentEnough(a,b)
     /\ \A a \in piacqs(b) \ {b} : SnapshotsSufficient(a)
 
 (* If an actor is garbage and its snapshot is up to date and the snapshots of
    all its historical inverse acquaintances are recent enough and 
  *)
 Liveness == \A a \in pdom(actors) : 
-    Quiescent(a) => (SnapshotsSufficient(a) => a \in appearsQuiescent(snapshots))
+    Quiescent(a) => (SnapshotsSufficient(a) => a \in AppearsQuiescent)
 
 -----------------------------------------------------------------------------
 
