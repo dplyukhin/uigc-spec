@@ -1,5 +1,5 @@
 ---- MODULE Dynamic ----
-EXTENDS Integers, FiniteSets, Bags
+EXTENDS Integers, FiniteSets, Bags, TLC
 
 (*
 NOTES ON THIS MODULE
@@ -22,6 +22,19 @@ VARIABLE
 
 (* `null' is an arbitrary value used to signal that an expression was undefined. *)
 CONSTANT null
+
+-----------------------------------------------------------------------------
+
+(* Assuming map1 has type [D1 -> Nat] and map2 has type [D2 -> Nat] where D2
+   is a subset of D1, this operator increments every map1[a] by the value of map2[a]. *)
+map1 ++ map2 == [ a \in DOMAIN map1 |-> IF a \in DOMAIN map2 
+                                        THEN map1[a] + map2[a] 
+                                        ELSE map1[a] ]
+
+(* Convenient notation for adding and removing from bags of undelivered messages. *)
+put(bag, x)    == bag (+) SetToBag({x})
+remove(bag, x) == bag (-) SetToBag({x})
+
 
 -----------------------------------------------------------------------------
 (* A message consists of (a) the name of the destination actor, and (b) a set
@@ -57,25 +70,27 @@ TypeOK ==
   /\ snapshots      \in [ActorName -> ActorState \cup {null}]
   /\ BagToSet(msgs) \subseteq Message
 
-initialState(self, parent) == [
+InitialActorState == [
     status      |-> "busy", 
     sendCount   |-> [b \in ActorName |-> 0],
     recvCount   |-> 0,
-    active      |-> [b \in ActorName |-> IF b = self THEN 1 ELSE 0],
+    active      |-> [b \in ActorName |-> 0],
     deactivated |-> [b \in ActorName |-> 0],
-    created     |-> [<<a,b>> \in ActorName \X ActorName |-> 
-        IF (a = self \/ a = parent) /\ b = self THEN 1 ELSE 0]
+    created     |-> [b, c \in ActorName |-> 0]
 ]
         
-(* Initially, some actor exists and the rest do not. *)
+(* In the initial configuration, there is one busy actor with a reference
+   to itself. *)
 Init ==   
-    LET initialActor == CHOOSE a \in ActorName: TRUE IN
-    /\ actors = [a \in ActorName |-> 
-            IF a = initialActor THEN initialState(a, null)
-            ELSE null
-        ]
-    /\ snapshots = [a \in ActorName |-> null]
+    LET actor == CHOOSE a \in ActorName: TRUE 
+        state == [ InitialActorState EXCEPT 
+                   !.active  = @ ++ (actor :> 1),
+                   !.created = @ ++ (<<actor, actor>> :> 1)
+                 ]
+    IN
     /\ msgs = EmptyBag
+    /\ actors = [a \in ActorName |-> IF a = actor THEN state ELSE null ]
+    /\ snapshots = [a \in ActorName |-> null]
 
 -----------------------------------------------------------------------------
 
@@ -95,15 +110,6 @@ acqs(a)    == { b \in ActorName : actors[a].active[b] > 0 }
 pacqs(a)   == { b \in ActorName : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
 piacqs(b)  == { a \in CreatedActors : b \in pacqs(a) }
 
-(* Assuming map1 has type [D1 -> Nat] and map2 has type [D2 -> Nat] where D2
-   is a subset of D1, this operator increments every map1[a] by the value of map2[a]. *)
-map1 ++ map2 == [ a \in DOMAIN map1 |-> IF a \in DOMAIN map2 
-                                        THEN map1[a] + map2[a] 
-                                        ELSE map1[a] ]
-
-put(bag, x)    == bag (+) SetToBag({x})
-remove(bag, x) == bag (-) SetToBag({x})
-
 -----------------------------------------------------------------------------
 Idle ==
     \E a \in BusyActors :
@@ -113,8 +119,12 @@ Idle ==
 Spawn == 
     \E a \in BusyActors : \E b \in FreshActorName :
     /\ actors' = [actors EXCEPT 
-        ![a].active[b] = 1,      \* Add child ref to parent state
-        ![b] = initialState(b,a) 
+        ![a].active[b] = 1,                                 \* Parent has a reference to the child.
+        ![b] = [ 
+            InitialActorState EXCEPT 
+            !.active  = @ ++ (b :> 1),                      \* Child has a reference to itself.
+            !.created = @ ++ (<<b,b>> :> 1 @@ <<a,b>> :> 1) \* Child knows about both references.
+        ]
         ]
     /\ UNCHANGED <<snapshots,msgs>>
 
