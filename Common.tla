@@ -58,6 +58,7 @@ piacqs(b)  == { a \in pdom(actors) : b \in pacqs(a) }
 BusyActors    == { a \in pdom(actors) : actors[a].status = "busy" }
 IdleActors    == { a \in pdom(actors) : actors[a].status = "idle" }
 CrashedActors == { a \in pdom(actors) : actors[a].status = "crashed" }
+Receptionists == { a \in pdom(actors) : actors[a].isReceptionist }
 Blocked       == { a \in IdleActors   : msgsTo(a) = {} }
 Quiescent     == 
     LET RECURSIVE isQuiescent(_)

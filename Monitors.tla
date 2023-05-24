@@ -57,7 +57,7 @@ Crash ==
 
 Monitor ==
     \E a \in BusyActors : \E b \in acqs(a) :
-    /\ actors' = [actors EXCEPT ![a].monitored = @ \union {b}] \* TODO What if deactivated?
+    /\ actors' = [actors EXCEPT ![a].monitored = @ \union {b}]
     /\ UNCHANGED <<msgs,snapshots>>
 
 Notify ==
@@ -65,8 +65,23 @@ Notify ==
     /\ actors' = [actors EXCEPT ![a].status = "busy", ![a].monitored = @ \ {b}]
     /\ UNCHANGED <<msgs,snapshots>>
 
+Register ==
+    \E a \in BusyActors \ Receptionists :
+    /\ actors' = [actors EXCEPT ![a].isReceptionist = TRUE]
+    /\ UNCHANGED <<msgs,snapshots>>
+
+Wakeup ==
+    \E a \in IdleActors \intersect Receptionists :
+    /\ actors' = [actors EXCEPT ![a].status = "busy"]
+    /\ UNCHANGED <<msgs,snapshots>>
+
+Unregister ==
+    \E a \in BusyActors \intersect Receptionists :
+    /\ actors' = [actors EXCEPT ![a].isReceptionist = FALSE]
+    /\ UNCHANGED <<msgs,snapshots>>
+
 Next == D!Idle \/ D!Deactivate \/ D!Send \/ D!Receive \/ D!Snapshot \/ 
-        Spawn \/ Crash \/ Monitor \/ Notify
+        Spawn \/ Crash \/ Monitor \/ Notify \/ Register \/ Wakeup \/ Unregister
 
 
 -----------------------------------------------------------------------------
