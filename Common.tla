@@ -55,10 +55,11 @@ acqs(a)    == { b \in pdom(actors) : actors[a].active[b] > 0 }
 pacqs(a)   == { b \in pdom(actors) : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
 piacqs(b)  == { a \in pdom(actors) : b \in pacqs(a) }
 
-BusyActors == { a \in pdom(actors) : actors[a].status = "busy" }
-IdleActors == { a \in pdom(actors) : actors[a].status = "idle" }
-Blocked    == { a \in IdleActors   : msgsTo(a) = {} }
-Quiescent  == 
+BusyActors    == { a \in pdom(actors) : actors[a].status = "busy" }
+IdleActors    == { a \in pdom(actors) : actors[a].status = "idle" }
+CrashedActors == { a \in pdom(actors) : actors[a].status = "crashed" }
+Blocked       == { a \in IdleActors   : msgsTo(a) = {} }
+Quiescent     == 
     LET RECURSIVE isQuiescent(_)
         isQuiescent(b) == b \in Blocked /\ \A a \in piacqs(b) \ {b} : isQuiescent(a)
     IN { a \in pdom(actors) : isQuiescent(a) }

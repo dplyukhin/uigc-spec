@@ -6,7 +6,7 @@ EXTENDS Common, Integers, FiniteSets, Bags, TLC
 D == INSTANCE Dynamic
 
 ActorState == [
-    status      : {"busy", "idle"},
+    status      : {"busy", "idle", "crashed"}, \* NEW: Actors may become "crashed".
     recvCount   : Nat,
     sendCount   : [ActorName -> Nat],
     active      : [ActorName -> Nat],
@@ -50,7 +50,24 @@ Spawn ==
         ]
     /\ UNCHANGED <<snapshots,msgs>>
 
-Next == D!Idle \/ D!Deactivate \/ D!Send \/ D!Receive \/ D!Snapshot \/ Spawn
+Crash ==
+    \E a \in BusyActors :
+    /\ actors' = [actors EXCEPT ![a].status = "crashed"]
+    /\ UNCHANGED <<msgs,snapshots>>
+
+Monitor ==
+    \E a \in BusyActors : \E b \in acqs(a) :
+    /\ actors' = [actors EXCEPT ![a].monitored = @ \union {b}] \* TODO What if deactivated?
+    /\ UNCHANGED <<msgs,snapshots>>
+
+Notify ==
+    \E a \in IdleActors : \E b \in CrashedActors :
+    /\ actors' = [actors EXCEPT ![a].status = "busy", ![a].monitored = @ \ {b}]
+    /\ UNCHANGED <<msgs,snapshots>>
+
+Next == D!Idle \/ D!Deactivate \/ D!Send \/ D!Receive \/ D!Snapshot \/ 
+        Spawn \/ Crash \/ Monitor \/ Notify
+
 
 -----------------------------------------------------------------------------
 

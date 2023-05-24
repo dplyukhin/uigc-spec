@@ -110,7 +110,7 @@ Receive ==
     /\ UNCHANGED <<snapshots>>
 
 Snapshot == 
-    \E a \in pdom(actors) :
+    \E a \in IdleActors \union BusyActors :
     /\ snapshots[a] = null
     /\ snapshots' = [snapshots EXCEPT ![a] = actors[a]]
     /\ UNCHANGED <<msgs,actors>>
