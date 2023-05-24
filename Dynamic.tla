@@ -131,14 +131,12 @@ AppearsIdle    == { a \in pdom(snapshots) : snapshots[a].status = "idle" }
 AppearsClosed  == { b \in pdom(snapshots) : historicalIAcqs(b) \subseteq pdom(snapshots) }
 AppearsBlocked == { b \in AppearsIdle \cap AppearsClosed : countSentTo(b) = countReceived(b) }
 
-AppearsQuiescent == 
-    LET RECURSIVE actorAppearsQuiescent(_)
-        actorAppearsQuiescent(b) ==
-            /\ b \in AppearsBlocked
-            /\ \A a \in apparentIAcqs(b) \ {b} : 
-                /\ a \in pdom(snapshots)
-                /\ actorAppearsQuiescent(a)
-    IN { a \in pdom(snapshots) : actorAppearsQuiescent(a) }
+(* TODO: This can get stuck in a loop! *)
+AppearsPotentiallyUnblocked == CHOOSE S \in SUBSET pdom(snapshots) : 
+    /\ \A a \in pdom(snapshots) \ AppearsBlocked : a \in S
+    /\ \A a \in S, b \in pdom(snapshots) : a \in apparentIAcqs(b) => b \in S
+
+AppearsQuiescent == pdom(snapshots) \ AppearsPotentiallyUnblocked
 
 Safety == AppearsQuiescent \subseteq Quiescent
 
@@ -162,15 +160,16 @@ SnapshotUpToDate(a) == actors[a] = snapshots[a]
    2. The snapshots of all b's historical inverse acquaintances are recent enough for a;
    3. The snapshots are sufficient for all of b's potential inverse acquaintances.
  *)
-RECURSIVE SnapshotsSufficient(_)
-SnapshotsSufficient(b) == 
-    /\ SnapshotUpToDate(b)
-    /\ \A a \in historicalIAcqs(b) : RecentEnough(a,b)
-    /\ \A a \in piacqs(b) \ {b} : SnapshotsSufficient(a)
+SnapshotsInsufficient == CHOOSE S \in SUBSET pdom(actors) :
+    /\ \A a   \in pdom(actors) : ~SnapshotUpToDate(a) => a \in S 
+    /\ \A a,b \in pdom(actors) : ~RecentEnough(a,b) => b \in S
+    /\ \A a,b \in pdom(actors) : a \in S /\ a \in piacqs(b) => b \in S
+
+SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
 
 (* If an actor is garbage and its snapshot is up to date and the snapshots of
    all its historical inverse acquaintances are recent enough and 
  *)
-Liveness == \A a \in Quiescent : ~SnapshotsSufficient(a) \/ a \in AppearsQuiescent
+Liveness == (Quiescent \intersect SnapshotsSufficient) \subseteq AppearsQuiescent
 
 ====
