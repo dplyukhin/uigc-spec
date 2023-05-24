@@ -95,6 +95,12 @@ acqs(a)    == { b \in ActorName : actors[a].active[b] > 0 }
 pacqs(a)   == { b \in ActorName : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
 piacqs(b)  == { a \in CreatedActors : b \in pacqs(a) }
 
+(* Assuming map1 has type [D1 -> Nat] and map2 has type [D2 -> Nat] where D2
+   is a subset of D1, this operator increments every map1[a] by the value of map2[a]. *)
+map1 ++ map2 == [ a \in DOMAIN map1 |-> IF a \in DOMAIN map2 
+                                        THEN map1[a] + map2[a] 
+                                        ELSE map1[a] ]
+
 -----------------------------------------------------------------------------
 Idle ==
     \E a \in BusyActors :
@@ -119,36 +125,22 @@ Deactivate ==
 
 Send == 
     \E a \in BusyActors : \E b \in acqs(a) : \E refs \in SUBSET acqs(a) :
-    LET n == actors[a].sendCount[b] 
-        created == [ <<x,y>> \in ActorName \X ActorName |-> 
-            IF x = b /\ y \in refs 
-            THEN actors[a].created[<<x,y>>] + 1
-            ELSE actors[a].created[<<x,y>>]
-            ]
-    IN
     /\ actors' = [actors EXCEPT 
-        ![a].sendCount[b] = (n + 1),
-        ![a].created = created
+        ![a].sendCount[b] = @ + 1,
+        ![a].created = @ ++ [ <<x,y>> \in {b} \X refs |-> 1 ]
         ]
     (* Add this message to the msgs bag. *)
     /\ msgs' = msgs (+) SetToBag({[target |-> b, refs |-> refs]})
     /\ UNCHANGED <<snapshots>>
 
 Receive ==
-    \E a \in IdleActors : \E m \in BagToSet(msgs) :
-    /\ m.target = a 
-    /\ LET n == actors[a].recvCount 
-            active == [c \in ActorName |-> 
-                IF c \in m.refs 
-                THEN actors[a].active[c] + 1
-                ELSE actors[a].active[c]]
-        IN
-        /\ actors' = [actors EXCEPT 
-            ![a].active = active,
-            ![a].recvCount = (n+1), 
-            ![a].status = "busy"]
-        (* Remove m from the msgs bag. *)
-        /\ msgs' = msgs (-) SetToBag({m})
+    \E a \in IdleActors : \E m \in msgsTo(a) :
+    /\ actors' = [actors EXCEPT 
+        ![a].active = @ ++ [c \in m.refs |-> 1],
+        ![a].recvCount = @ + 1, 
+        ![a].status = "busy"]
+    (* Remove m from the msgs bag. *)
+    /\ msgs' = msgs (-) SetToBag({m})
     /\ UNCHANGED <<snapshots>>
 
 Snapshot == 
@@ -220,7 +212,7 @@ UpwardClosed(Q) ==
 Safety ==
     UpwardClosed(snapshots)
     => \A a \in ActorsOf(snapshots) :
-        AppearsQuiescent(a, snapshots) => Quiescent(a)
+        AppearsQuiescent(a, snapshots) => ~Quiescent(a)
 
 -----------------------------------------------------------------------------
 
