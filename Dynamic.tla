@@ -179,21 +179,17 @@ Next == Idle \/ Spawn \/ Deactivate \/ Send \/ Receive \/ Snapshot
 
 -----------------------------------------------------------------------------
 
-historicalIAcqs(c) == { b \in ActorName : 
-                        \E a \in pdom(snapshots) : snapshots[a].created[b, c] > 0 }
-apparentAcqs(b)    == { c \in ActorName :
-                        LET created     == sum([ a \in pdom(snapshots) |-> snapshots[a].created[b, c]])
-                            deactivated == IF b \in pdom(snapshots) THEN snapshots[b].deactivated[c] ELSE 0
-                        IN created > deactivated
-                      }
-apparentIAcqs(b)   == { a \in ActorName : b \in apparentAcqs(a) }
-AppearsBlocked     == { b \in pdom(snapshots) :
-                        snapshots[b].status = "idle" /\ 
-                        historicalIAcqs(b) \subseteq pdom(snapshots) /\
-                        LET sent == sum([ a \in historicalIAcqs(b) |-> snapshots[a].sendCount[b] ])
-                            received == snapshots[b].recvCount
-                        IN sent = received
-                      }
+countCreated(a, b)     == sum([ c \in pdom(snapshots) |-> snapshots[c].created[a, b]])
+countDeactivated(a, b) == IF a \in pdom(snapshots) THEN snapshots[a].deactivated[b] ELSE 0
+countSentTo(b)         == sum([ a \in pdom(snapshots) |-> snapshots[a].sendCount[b]])
+countReceived(b)       == IF b \in pdom(snapshots) THEN snapshots[b].recvCount ELSE 0
+
+historicalIAcqs(c) == { b \in ActorName : countCreated(b, c) > 0 }
+apparentIAcqs(c)   == { b \in ActorName : countCreated(b, c) > countDeactivated(b, c) }
+
+AppearsIdle    == { a \in pdom(snapshots) : snapshots[a].status = "idle" }
+AppearsClosed  == { b \in pdom(snapshots) : historicalIAcqs(b) \subseteq pdom(snapshots) }
+AppearsBlocked == { b \in AppearsIdle \cap AppearsClosed : countSentTo(b) = countReceived(b) }
 
 AppearsQuiescent == 
     LET RECURSIVE actorAppearsQuiescent(_)
@@ -206,6 +202,8 @@ AppearsQuiescent ==
 
 Safety == AppearsQuiescent \subseteq Quiescent
 
+-----------------------------------------------------------------------------
+
 (* A snapshot from actor `a' is recent enough for actor `b' if its send count,
    deactivated count, and created count regarding `b' are all up to date.
  *)
@@ -216,6 +214,7 @@ RecentEnough(a, b) ==
     /\ \A c \in ActorName : actors[a].created[b,c] = snapshots[a].created[b,c]
     /\ \A c \in ActorName : actors[a].created[c,b] = snapshots[a].created[c,b]
 
+(* An actor's snapshot is up to date if its state has not changed since the last snapshot. *)
 SnapshotUpToDate(a) == actors[a] = snapshots[a]
 
 (* A set of snapshots is sufficient for b if:
@@ -232,8 +231,6 @@ SnapshotsSufficient(b) ==
 (* If an actor is garbage and its snapshot is up to date and the snapshots of
    all its historical inverse acquaintances are recent enough and 
  *)
-Liveness == \A a \in Quiescent : SnapshotsSufficient(a) => a \in AppearsQuiescent
-
------------------------------------------------------------------------------
+Liveness == \A a \in Quiescent : ~SnapshotsSufficient(a) \/ a \in AppearsQuiescent
 
 ====
