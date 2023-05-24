@@ -146,7 +146,7 @@ Send ==
     \E a \in BusyActors : \E b \in acqs(a) : \E refs \in SUBSET acqs(a) :
     /\ actors' = [actors EXCEPT 
         ![a].sendCount[b] = @ + 1,
-        ![a].created = @ ++ [ x, y \in {b} \X refs |-> 1 ]
+        ![a].created = @ ++ [ <<x, y>> \in {b} \X refs |-> 1 ]
         ]
     (* Add this message to the msgs bag. *)
     /\ msgs' = put(msgs, [target |-> b, refs |-> refs])
@@ -177,12 +177,34 @@ Blocked(a) == actors[a].status = "idle" /\ msgsTo(a) = {}
 RECURSIVE Quiescent(_)
 Quiescent(b) == Blocked(b) /\ \A a \in piacqs(b) \ {b} : Quiescent(a)
 
-ActorsOf(Q) == { a \in ActorName : Q[a] # null }
+ActorsOf(S) == { a \in ActorName : S[a] # null }
 
-(* The domain over which the partial function Q is defined. *)
-pdom(Q) == { a \in DOMAIN Q : Q[a] # null }
+(* The domain over which the partial function S is defined. *)
+pdom(S) == { a \in DOMAIN S : S[a] # null }
 
-historicalAcqs(b, Q) == { c \in ActorName : \E a \in pdom(Q) : Q[a].created[b, c] > 0 }
+historicalAcqs(b, S) == { c \in ActorName : \E a \in pdom(S) : S[a].created[b, c] > 0 }
+apparentAcqs(b, S)   == { c \in ActorName :
+                          LET created     == sum([ a \in pdom(S) |-> S[a].created[b, c]])
+                              deactivated == IF b \in pdom(S) THEN S[b].deactivated[c] ELSE 0
+                          IN created > deactivated
+                        }
+apparentIAcqs(b, S)  == { a \in ActorName : b \in apparentAcqs(a, S) }
+appearsBlocked(S)    == { b \in pdom(S) :
+                          S[b].status = "idle" /\ 
+                          apparentIAcqs(b,S) \subseteq pdom(S) /\
+                          LET sent == sum([ a \in historicalAcqs(b,S) |-> S[a].sendCount[b] ])
+                              received == S[b].recvCount
+                          IN sent = received
+                        }
+
+RECURSIVE actorAppearsQuiescent(_,_)
+actorAppearsQuiescent(b, S) ==
+    /\ b \in appearsBlocked(S)
+    /\ \A a \in apparentIAcqs(b, S) \ {b} : 
+        /\ a \in pdom(S)
+        /\ actorAppearsQuiescent(a, S)
+
+appearsQuiescent(S) == { a \in pdom(S) : actorAppearsQuiescent(a, S) }
 
 EverAcquainted(b,c,Q) ==
     \E a \in ActorsOf(Q) : Q[a].created[b, c] > 0
@@ -216,8 +238,8 @@ UpwardClosed(Q) ==
 
 Safety ==
     UpwardClosed(snapshots)
-    => \A a \in ActorsOf(snapshots) :
-        AppearsQuiescent(a, snapshots) => Quiescent(a)
+    => \A a \in appearsQuiescent(snapshots) :
+        Quiescent(a)
 
 -----------------------------------------------------------------------------
 
