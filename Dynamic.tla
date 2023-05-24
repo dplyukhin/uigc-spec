@@ -101,6 +101,9 @@ map1 ++ map2 == [ a \in DOMAIN map1 |-> IF a \in DOMAIN map2
                                         THEN map1[a] + map2[a] 
                                         ELSE map1[a] ]
 
+put(bag, x)    == bag (+) SetToBag({x})
+remove(bag, x) == bag (-) SetToBag({x})
+
 -----------------------------------------------------------------------------
 Idle ==
     \E a \in BusyActors :
@@ -130,7 +133,7 @@ Send ==
         ![a].created = @ ++ [ <<x,y>> \in {b} \X refs |-> 1 ]
         ]
     (* Add this message to the msgs bag. *)
-    /\ msgs' = msgs (+) SetToBag({[target |-> b, refs |-> refs]})
+    /\ msgs' = put(msgs, [target |-> b, refs |-> refs])
     /\ UNCHANGED <<snapshots>>
 
 Receive ==
@@ -140,7 +143,7 @@ Receive ==
         ![a].recvCount = @ + 1, 
         ![a].status = "busy"]
     (* Remove m from the msgs bag. *)
-    /\ msgs' = msgs (-) SetToBag({m})
+    /\ msgs' = remove(msgs, m)
     /\ UNCHANGED <<snapshots>>
 
 Snapshot == 
@@ -212,7 +215,7 @@ UpwardClosed(Q) ==
 Safety ==
     UpwardClosed(snapshots)
     => \A a \in ActorsOf(snapshots) :
-        AppearsQuiescent(a, snapshots) => ~Quiescent(a)
+        AppearsQuiescent(a, snapshots) => Quiescent(a)
 
 -----------------------------------------------------------------------------
 
