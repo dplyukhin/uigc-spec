@@ -182,19 +182,19 @@ ActorsOf(S) == { a \in ActorName : S[a] # null }
 (* The domain over which the partial function S is defined. *)
 pdom(S) == { a \in DOMAIN S : S[a] # null }
 
-historicalAcqs(b, S) == { c \in ActorName : \E a \in pdom(S) : S[a].created[b, c] > 0 }
-apparentAcqs(b, S)   == { c \in ActorName :
-                          LET created     == sum([ a \in pdom(S) |-> S[a].created[b, c]])
-                              deactivated == IF b \in pdom(S) THEN S[b].deactivated[c] ELSE 0
-                          IN created > deactivated
-                        }
-apparentIAcqs(b, S)  == { a \in ActorName : b \in apparentAcqs(a, S) }
-appearsBlocked(S)    == { b \in pdom(S) :
-                          S[b].status = "idle" /\ 
-                          historicalAcqs(b,S) \subseteq pdom(S) /\
-                          LET sent == sum([ a \in historicalAcqs(b,S) |-> S[a].sendCount[b] ])
-                              received == S[b].recvCount
-                          IN sent = received
+historicalIAcqs(c, S) == { b \in ActorName : \E a \in pdom(S) : S[a].created[b, c] > 0 }
+apparentAcqs(b, S)    == { c \in ActorName :
+                           LET created     == sum([ a \in pdom(S) |-> S[a].created[b, c]])
+                               deactivated == IF b \in pdom(S) THEN S[b].deactivated[c] ELSE 0
+                           IN created > deactivated
+                         }
+apparentIAcqs(b, S)   == { a \in ActorName : b \in apparentAcqs(a, S) }
+appearsBlocked(S)     == { b \in pdom(S) :
+                           S[b].status = "idle" /\ 
+                           historicalIAcqs(b,S) \subseteq pdom(S) /\
+                           LET sent == sum([ a \in historicalIAcqs(b,S) |-> S[a].sendCount[b] ])
+                               received == S[b].recvCount
+                           IN sent = received
                         }
 
 RECURSIVE actorAppearsQuiescent(_,_)
@@ -244,8 +244,3 @@ Safety ==
 -----------------------------------------------------------------------------
 
 ====
-
-1. spawn b 
-2. a sends self refs to a,b
-3. a go idle
-4. a snap
