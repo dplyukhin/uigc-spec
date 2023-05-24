@@ -42,6 +42,9 @@ sumOver(dom, map) == IF dom = {} THEN 0 ELSE
     map[x] + sumOver(dom \ {x}, map)
 sum(map) == sumOver(DOMAIN map, map)
 
+(* The domain over which the partial function S is defined. *)
+pdom(S) == { a \in DOMAIN S : S[a] # null }
+
 -----------------------------------------------------------------------------
 (* A message consists of (a) the name of the destination actor, and (b) a set
    of references to other actors. Any other data a message could contain is 
@@ -100,9 +103,8 @@ Init ==
 
 -----------------------------------------------------------------------------
 
-CreatedActors  == { a \in ActorName     : actors[a] # null }
-BusyActors     == { a \in CreatedActors : actors[a].status = "busy" }
-IdleActors     == { a \in CreatedActors : actors[a].status = "idle" }
+BusyActors     == { a \in pdom(actors) : actors[a].status = "busy" }
+IdleActors     == { a \in pdom(actors) : actors[a].status = "idle" }
 
 (* TLA-specific mechanism for deterministically picking a fresh actor name.
    If ActorName is a finite set and all names have been exhausted, this operator
@@ -112,9 +114,9 @@ FreshActorName == IF \E a \in ActorName : actors[a] = null
                   ELSE {}
 
 msgsTo(a)  == { m \in BagToSet(msgs) : m.target = a }
-acqs(a)    == { b \in ActorName : actors[a].active[b] > 0 }
-pacqs(a)   == { b \in ActorName : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
-piacqs(b)  == { a \in CreatedActors : b \in pacqs(a) }
+acqs(a)    == { b \in pdom(actors) : actors[a].active[b] > 0 }
+pacqs(a)   == { b \in pdom(actors) : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
+piacqs(b)  == { a \in pdom(actors) : b \in pacqs(a) }
 
 -----------------------------------------------------------------------------
 Idle ==
@@ -163,7 +165,7 @@ Receive ==
     /\ UNCHANGED <<snapshots>>
 
 Snapshot == 
-    \E a \in CreatedActors :
+    \E a \in pdom(actors) :
     /\ snapshots[a] = null
     /\ snapshots' = [snapshots EXCEPT ![a] = actors[a]]
     /\ UNCHANGED <<msgs,actors>>
@@ -172,15 +174,12 @@ Next == Idle \/ Spawn \/ Deactivate \/ Send \/ Receive \/ Snapshot
 
 -----------------------------------------------------------------------------
 
-Blocked(a) == actors[a].status = "idle" /\ msgsTo(a) = {}
+Blocked == { a \in pdom(actors) : actors[a].status = "idle" /\ msgsTo(a) = {} }
 
-RECURSIVE Quiescent(_)
-Quiescent(b) == Blocked(b) /\ \A a \in piacqs(b) \ {b} : Quiescent(a)
+RECURSIVE isQuiescent(_)
+isQuiescent(b) == b \in Blocked /\ \A a \in piacqs(b) \ {b} : isQuiescent(a)
 
-ActorsOf(S) == { a \in ActorName : S[a] # null }
-
-(* The domain over which the partial function S is defined. *)
-pdom(S) == { a \in DOMAIN S : S[a] # null }
+Quiescent == { a \in pdom(actors) : isQuiescent(a) }
 
 historicalIAcqs(c) == { b \in ActorName : 
                         \E a \in pdom(snapshots) : snapshots[a].created[b, c] > 0 }
@@ -207,7 +206,7 @@ actorAppearsQuiescent(b) ==
 
 AppearsQuiescent == { a \in pdom(snapshots) : actorAppearsQuiescent(a) }
 
-Safety == \A a \in AppearsQuiescent : Quiescent(a)
+Safety == AppearsQuiescent \subseteq Quiescent
 
 (* A snapshot from actor `a' is recent enough for actor `b' if its send count,
    deactivated count, and created count regarding `b' are all up to date.
@@ -235,8 +234,7 @@ SnapshotsSufficient(b) ==
 (* If an actor is garbage and its snapshot is up to date and the snapshots of
    all its historical inverse acquaintances are recent enough and 
  *)
-Liveness == \A a \in pdom(actors) : 
-    Quiescent(a) => (SnapshotsSufficient(a) => a \in AppearsQuiescent)
+Liveness == \A a \in Quiescent : SnapshotsSufficient(a) => a \in AppearsQuiescent
 
 -----------------------------------------------------------------------------
 
