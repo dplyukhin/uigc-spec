@@ -61,7 +61,7 @@ Monitor ==
     /\ UNCHANGED <<msgs,snapshots>>
 
 Notify ==
-    \E a \in IdleActors : \E b \in CrashedActors :
+    \E a \in IdleActors : \E b \in CrashedActors \intersect actors[a].monitored :
     /\ actors' = [actors EXCEPT ![a].status = "busy", ![a].monitored = @ \ {b}]
     /\ UNCHANGED <<msgs,snapshots>>
 
@@ -91,23 +91,16 @@ Next == D!Idle \/ D!Deactivate \/ D!Send \/ D!Receive \/ D!Snapshot \/
 OldSafety == D!AppearsQuiescent \subseteq Quiescent
 
 appearsMonitoredBy(a) == snapshots[a].monitored
-AppearsReceptionist == { a \in pdom(snapshots) : ~snapshots[a].isReceptionist }
+AppearsReceptionist == { a \in pdom(snapshots) : snapshots[a].isReceptionist }
 
-AppearsPotentiallyUnblocked == CHOOSE S \in SUBSET pdom(snapshots) : 
-    /\ \A a \in pdom(snapshots) \ AppearsBlocked : a \in S
-    /\ \A a \in S, b \in pdom(snapshots) : a \in apparentIAcqs(b) => b \in S
+AppearsPotentiallyUnblocked == 
+    CHOOSE S \in SUBSET pdom(snapshots) : \A a, b \in pdom(snapshots) :
+    /\ (a \in AppearsReceptionist => a \in S)
+    /\ (b \in appearsMonitoredBy(a) /\ b \in S => a \in S)
+    /\ (a \notin D!AppearsBlocked => a \in S)
+    /\ (a \in S /\ a \in D!apparentIAcqs(b) => b \in S)
 
 AppearsQuiescent == pdom(snapshots) \ AppearsPotentiallyUnblocked
-
-AppearsQuiescent == 
-    LET RECURSIVE actorAppearsQuiescent(_)
-        actorAppearsQuiescent(b) ==
-            /\ ~snapshots[b].isReceptionist
-            /\ b \in D!AppearsBlocked
-            /\ \A a \in (D!apparentIAcqs(b) \union snapshots[b].monitored) \ {b} : 
-                /\ a \in pdom(snapshots)
-                /\ actorAppearsQuiescent(a)
-    IN { a \in pdom(snapshots) : actorAppearsQuiescent(a) }
 
 Safety == AppearsQuiescent \subseteq Quiescent
 

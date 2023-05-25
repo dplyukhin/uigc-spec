@@ -162,8 +162,8 @@ SnapshotUpToDate(a) == actors[a] = snapshots[a]
  *)
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
-    /\ ~SnapshotUpToDate(a) => a \in S 
-    /\ ~RecentEnough(a,b) => b \in S
+    /\ (~SnapshotUpToDate(a) => a \in S)
+    /\ (~RecentEnough(a,b) => b \in S)
     /\ (a \in S /\ a \in piacqs(b) => b \in S)
 
 SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
