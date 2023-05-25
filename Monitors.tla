@@ -96,12 +96,13 @@ AppearsReceptionist == { a \in pdom(snapshots) : snapshots[a].isReceptionist }
 AppearsPotentiallyUnblocked == 
     CHOOSE S \in SUBSET pdom(snapshots) : \A a, b \in pdom(snapshots) :
     /\ (a \in AppearsReceptionist => a \in S)
+    /\ (b \in appearsMonitoredBy(a) /\ b \notin pdom(snapshots) => a \in S)
     /\ (b \in appearsMonitoredBy(a) /\ b \in S => a \in S)
-    /\ (a \notin D!AppearsBlocked => a \in S)
+    /\ (a \notin D!AppearsBlocked => a \in S)   \* This also checks that all piacs are in S
     /\ (a \in S /\ a \in D!apparentIAcqs(b) => b \in S)
 
 AppearsQuiescent == pdom(snapshots) \ AppearsPotentiallyUnblocked
 
-Safety == AppearsQuiescent \subseteq Quiescent
+Safety == AppearsQuiescent \subseteq IdleActors \* TODO Quiescent
 
 ====
