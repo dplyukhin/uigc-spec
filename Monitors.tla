@@ -26,6 +26,8 @@ InitialActorState ==
         monitored |-> {},
         isReceptionist |-> TRUE
     ]
+
+monitoredBy(b) == { a \in pdom(actors) : b \in pacqs(a) }
  
 Init ==   
     LET actor == CHOOSE a \in ActorName: TRUE 
@@ -61,7 +63,7 @@ Monitor ==
     /\ UNCHANGED <<msgs,snapshots>>
 
 Notify ==
-    \E a \in IdleActors : \E b \in CrashedActors \intersect actors[a].monitored :
+    \E a \in IdleActors : \E b \in CrashedActors \intersect monitoredBy(a) :
     /\ actors' = [actors EXCEPT ![a].status = "busy", ![a].monitored = @ \ {b}]
     /\ UNCHANGED <<msgs,snapshots>>
 
@@ -86,6 +88,15 @@ Next == D!Idle \/ D!Deactivate \/ D!Send \/ D!Receive \/ D!Snapshot \/
 
 -----------------------------------------------------------------------------
 
+PotentiallyUnblocked ==
+    CHOOSE S \in SUBSET pdom(actors) : \A a, b \in pdom(actors) :
+    /\ (a \in Receptionists => a \in S)
+    /\ (a \notin Blocked => a \in S)
+    /\ (a \in S /\ a \in piacqs(b) => b \in S)
+    /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
+
+Quiescent == pdom(actors) \ PotentiallyUnblocked
+
 (* The previous safety property no longer holds because actors can now become
    busy by receiving signals from crashed actors or messages from external actors. *)
 OldSafety == D!AppearsQuiescent \subseteq Quiescent
@@ -103,6 +114,27 @@ AppearsPotentiallyUnblocked ==
 
 AppearsQuiescent == pdom(snapshots) \ AppearsPotentiallyUnblocked
 
-Safety == AppearsQuiescent \subseteq IdleActors \* TODO Quiescent
+Safety == AppearsQuiescent \subseteq Quiescent
+
+-----------------------------------------------------------------------------
+
+(* A set of snapshots is sufficient for b if:
+   1. b's snapshot is up to date;
+   2. The snapshots of all b's historical inverse acquaintances are recent enough for a;
+   3. The snapshots are sufficient for all of b's potential inverse acquaintances.
+ *)
+SnapshotsInsufficient == 
+    CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
+    /\ (~D!SnapshotUpToDate(a) => a \in S)
+    /\ (~D!RecentEnough(a,b) => b \in S)
+    /\ (a \in S /\ a \in piacqs(b) => b \in S)
+    /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
+
+SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
+
+(* If an actor is garbage and its snapshot is up to date and the snapshots of
+   all its historical inverse acquaintances are recent enough and 
+ *)
+Liveness == (Quiescent \intersect SnapshotsSufficient) \subseteq AppearsQuiescent
 
 ====

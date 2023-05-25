@@ -60,9 +60,5 @@ IdleActors    == { a \in pdom(actors) : actors[a].status = "idle" }
 CrashedActors == { a \in pdom(actors) : actors[a].status = "crashed" }
 Receptionists == { a \in pdom(actors) : actors[a].isReceptionist }
 Blocked       == { a \in IdleActors   : msgsTo(a) = {} }
-Quiescent     == 
-    LET RECURSIVE isQuiescent(_)
-        isQuiescent(b) == b \in Blocked /\ \A a \in piacqs(b) \ {b} : isQuiescent(a)
-    IN { a \in pdom(actors) : isQuiescent(a) }
 
 ====

@@ -119,6 +119,13 @@ Next == Idle \/ Spawn \/ Deactivate \/ Send \/ Receive \/ Snapshot
 
 -----------------------------------------------------------------------------
 
+PotentiallyUnblocked ==
+    CHOOSE S \in SUBSET pdom(actors) : \A a, b \in pdom(actors) :
+    /\ (a \notin Blocked => a \in S)
+    /\ (a \in S /\ a \in piacqs(b) => b \in S)
+
+Quiescent == pdom(actors) \ PotentiallyUnblocked
+
 countCreated(a, b)     == sum([ c \in pdom(snapshots) |-> snapshots[c].created[a, b]])
 countDeactivated(a, b) == IF a \in pdom(snapshots) THEN snapshots[a].deactivated[b] ELSE 0
 countSentTo(b)         == sum([ a \in pdom(snapshots) |-> snapshots[a].sendCount[b]])
