@@ -131,10 +131,10 @@ AppearsIdle    == { a \in pdom(snapshots) : snapshots[a].status = "idle" }
 AppearsClosed  == { b \in pdom(snapshots) : historicalIAcqs(b) \subseteq pdom(snapshots) }
 AppearsBlocked == { b \in AppearsIdle \cap AppearsClosed : countSentTo(b) = countReceived(b) }
 
-(* TODO: This can get stuck in a loop! *)
-AppearsPotentiallyUnblocked == CHOOSE S \in SUBSET pdom(snapshots) : 
-    /\ \A a \in pdom(snapshots) \ AppearsBlocked : a \in S
-    /\ \A a \in S, b \in pdom(snapshots) : a \in apparentIAcqs(b) => b \in S
+AppearsPotentiallyUnblocked == 
+    CHOOSE S \in SUBSET pdom(snapshots) : \A a, b \in pdom(snapshots) :
+    /\ (a \notin AppearsBlocked => a \in S)
+    /\ (a \in S /\ a \in apparentIAcqs(b) => b \in S)
 
 AppearsQuiescent == pdom(snapshots) \ AppearsPotentiallyUnblocked
 
@@ -160,10 +160,11 @@ SnapshotUpToDate(a) == actors[a] = snapshots[a]
    2. The snapshots of all b's historical inverse acquaintances are recent enough for a;
    3. The snapshots are sufficient for all of b's potential inverse acquaintances.
  *)
-SnapshotsInsufficient == CHOOSE S \in SUBSET pdom(actors) :
-    /\ \A a   \in pdom(actors) : ~SnapshotUpToDate(a) => a \in S 
-    /\ \A a,b \in pdom(actors) : ~RecentEnough(a,b) => b \in S
-    /\ \A a,b \in pdom(actors) : a \in S /\ a \in piacqs(b) => b \in S
+SnapshotsInsufficient == 
+    CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
+    /\ ~SnapshotUpToDate(a) => a \in S 
+    /\ ~RecentEnough(a,b) => b \in S
+    /\ (a \in S /\ a \in piacqs(b) => b \in S)
 
 SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
 

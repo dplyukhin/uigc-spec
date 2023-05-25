@@ -93,6 +93,12 @@ OldSafety == D!AppearsQuiescent \subseteq Quiescent
 appearsMonitoredBy(a) == snapshots[a].monitored
 AppearsReceptionist == { a \in pdom(snapshots) : ~snapshots[a].isReceptionist }
 
+AppearsPotentiallyUnblocked == CHOOSE S \in SUBSET pdom(snapshots) : 
+    /\ \A a \in pdom(snapshots) \ AppearsBlocked : a \in S
+    /\ \A a \in S, b \in pdom(snapshots) : a \in apparentIAcqs(b) => b \in S
+
+AppearsQuiescent == pdom(snapshots) \ AppearsPotentiallyUnblocked
+
 AppearsQuiescent == 
     LET RECURSIVE actorAppearsQuiescent(_)
         actorAppearsQuiescent(b) ==
