@@ -27,7 +27,7 @@ InitialActorState ==
         isReceptionist |-> TRUE
     ]
 
-monitoredBy(b) == { a \in pdom(actors) : b \in pacqs(a) }
+monitoredBy(b) == { a \in pdom(actors) : b \in actors[a].monitored }
  
 Init ==   
     LET actor == CHOOSE a \in ActorName: TRUE 
@@ -51,6 +51,12 @@ Spawn ==
         ]
         ]
     /\ UNCHANGED <<snapshots,msgs>>
+
+Snapshot == 
+    \E a \in IdleActors \union BusyActors \union CrashedActors :
+    /\ snapshots[a] = null
+    /\ snapshots' = [snapshots EXCEPT ![a] = actors[a]]
+    /\ UNCHANGED <<msgs,actors>>
 
 Crash ==
     \E a \in BusyActors :
@@ -82,18 +88,23 @@ Unregister ==
     /\ actors' = [actors EXCEPT ![a].isReceptionist = FALSE]
     /\ UNCHANGED <<msgs,snapshots>>
 
-Next == D!Idle \/ D!Deactivate \/ D!Send \/ D!Receive \/ D!Snapshot \/ 
-        Spawn \/ Crash \/ Monitor \/ Notify \/ Register \/ Wakeup \/ Unregister
+Next == D!Idle \/ D!Deactivate \/ D!Send \/ D!Receive \/ Snapshot \/ Spawn \/ 
+        Crash \/ Monitor \/ Notify \/ Register \/ Wakeup \/ Unregister
 
 
 -----------------------------------------------------------------------------
 
+(*
+Non-crashed receptionists and unblocked actors are not garbage.
+Non-crashed actors that are potentially reachable by non-garbage are not garbage.
+Non-crashed actors that monitor actors that can crash or have crashed are not garbage.
+ *)
 PotentiallyUnblocked ==
-    CHOOSE S \in SUBSET pdom(actors) : \A a, b \in pdom(actors) :
-    /\ (a \in Receptionists => a \in S)
-    /\ (a \notin Blocked => a \in S)
-    /\ (a \in S /\ a \in piacqs(b) => b \in S)
-    /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
+    CHOOSE S \in SUBSET pdom(actors) :
+    /\ (Receptionists \union Unblocked) \ CrashedActors \subseteq S
+    /\ \A a \in pdom(actors), b \in pdom(actors) \ CrashedActors :
+        /\ (a \in S \intersect piacqs(b) => b \in S)
+        /\ (a \in (S \union CrashedActors) \intersect monitoredBy(b) => b \in S)
 
 Quiescent == pdom(actors) \ PotentiallyUnblocked
 
@@ -103,14 +114,22 @@ OldSafety == D!AppearsQuiescent \subseteq Quiescent
 
 appearsMonitoredBy(a) == snapshots[a].monitored
 AppearsReceptionist == { a \in pdom(snapshots) : snapshots[a].isReceptionist }
+AppearsCrashed == { a \in pdom(snapshots) : snapshots[a].status = "crashed" }
+AppearsClosed == D!AppearsClosed \intersect 
+                 { b \in pdom(snapshots) : appearsMonitoredBy(b) \subseteq pdom(snapshots) }
 
+(* 
+Each clause in this definition corresponds to one in PotentiallyUnblocked---with one
+addition: if an actor A has potential inverse acquaintances or monitored actors that 
+have not taken a snapshot, then A should be marked as potentially unblocked for safety.
+ *)
 AppearsPotentiallyUnblocked == 
-    CHOOSE S \in SUBSET pdom(snapshots) : \A a, b \in pdom(snapshots) :
-    /\ (a \in AppearsReceptionist => a \in S)
-    /\ ((\E c \in ActorName \ pdom(snapshots) : c \in appearsMonitoredBy(a)) => a \in S)
-    /\ (b \in appearsMonitoredBy(a) /\ b \in S => a \in S)
-    /\ (a \notin D!AppearsBlocked => a \in S)   \* This also checks that all piacs are in S
-    /\ (a \in S /\ a \in D!apparentIAcqs(b) => b \in S)
+    CHOOSE S \in SUBSET pdom(snapshots) :
+    /\ pdom(snapshots) \ AppearsClosed \subseteq S
+    /\ (AppearsReceptionist \union D!AppearsUnblocked) \ AppearsCrashed \subseteq S
+    /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsCrashed :
+        /\ (a \in S \intersect D!apparentIAcqs(b) => b \in S)
+        /\ (a \in (S \union AppearsCrashed) \intersect appearsMonitoredBy(b) => b \in S)
 
 AppearsQuiescent == pdom(snapshots) \ AppearsPotentiallyUnblocked
 
@@ -126,7 +145,7 @@ Safety == AppearsQuiescent \subseteq Quiescent
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
     /\ (~D!SnapshotUpToDate(a) => a \in S)
-    /\ (~D!RecentEnough(a,b) => b \in S)
+    /\ (~D!RecentEnough(a,b) => b \in S)     \* What if crashed actors can take snapshots
     /\ (a \in S /\ a \in piacqs(b) => b \in S)
     /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
 

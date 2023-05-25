@@ -137,6 +137,7 @@ apparentIAcqs(c)   == { b \in ActorName : countCreated(b, c) > countDeactivated(
 AppearsIdle    == { a \in pdom(snapshots) : snapshots[a].status = "idle" }
 AppearsClosed  == { b \in pdom(snapshots) : historicalIAcqs(b) \subseteq pdom(snapshots) }
 AppearsBlocked == { b \in AppearsIdle \cap AppearsClosed : countSentTo(b) = countReceived(b) }
+AppearsUnblocked == pdom(snapshots) \ AppearsBlocked
 
 AppearsPotentiallyUnblocked == 
     CHOOSE S \in SUBSET pdom(snapshots) : \A a, b \in pdom(snapshots) :

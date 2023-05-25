@@ -60,5 +60,6 @@ IdleActors    == { a \in pdom(actors) : actors[a].status = "idle" }
 CrashedActors == { a \in pdom(actors) : actors[a].status = "crashed" }
 Receptionists == { a \in pdom(actors) : actors[a].isReceptionist }
 Blocked       == { a \in IdleActors   : msgsTo(a) = {} }
+Unblocked     == pdom(actors) \ Blocked
 
 ====
