@@ -24,16 +24,17 @@ TypeOK ==
 InitialActorState ==
     D!InitialActorState @@ [
         monitored |-> {},
-        isReceptionist |-> TRUE
+        isReceptionist |-> FALSE
     ]
 
-monitoredBy(b) == { a \in pdom(actors) : b \in actors[a].monitored }
+monitoredBy(b) == actors[b].monitored
  
 Init ==   
     LET actor == CHOOSE a \in ActorName: TRUE 
         state == [ InitialActorState EXCEPT 
                    !.active  = @ ++ (actor :> 1),
-                   !.created = @ ++ (<<actor, actor>> :> 1)
+                   !.created = @ ++ (<<actor, actor>> :> 1),
+                   !.isReceptionist = TRUE
                  ]
     IN
     /\ msgs = EmptyBag
