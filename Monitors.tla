@@ -137,6 +137,10 @@ Safety == AppearsQuiescent \subseteq Quiescent
 
 -----------------------------------------------------------------------------
 
+RecentEnough(a, b) ==
+    /\ D!RecentEnough(a,b) 
+    /\ actors[a].status = "crashed" => snapshots[a].status = "crashed"
+
 (* A set of snapshots is sufficient for b if:
    1. b's snapshot is up to date;
    2. The snapshots of all b's historical inverse acquaintances are recent enough for a;
@@ -145,7 +149,7 @@ Safety == AppearsQuiescent \subseteq Quiescent
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
     /\ (~D!SnapshotUpToDate(a) => a \in S)
-    /\ (~D!RecentEnough(a,b) => b \in S)     \* What if crashed actors can take snapshots
+    /\ (~RecentEnough(a,b) => b \in S)
     /\ (a \in S /\ a \in piacqs(b) => b \in S)
     /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
 
