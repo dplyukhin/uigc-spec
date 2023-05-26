@@ -37,8 +37,24 @@ Next == (M!Next /\ UNCHANGED <<droppedMsgs>>) \/ Drop \/ DropOracle
 
 -----------------------------------------------------------------------------
 
-Soundness == M!Safety
+Soundness == M!Soundness
 
-Completeness == M!Liveness
+SnapshotUpToDate(a) == 
+    /\ actors[a] = snapshots[a]
+    /\ droppedMsgsTo(a) = {}   \* The actor has been notified about all dropped messages
+
+SnapshotsInsufficient == 
+    CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
+    /\ (~SnapshotUpToDate(a) => a \in S)
+    /\ (~M!RecentEnough(a,b) => b \in S)
+    /\ (a \in S /\ a \in piacqs(b) => b \in S)
+    /\ (a \in S /\ a \in M!monitoredBy(b) => b \in S)
+
+SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
+
+(* If an actor is garbage and its snapshot is up to date and the snapshots of
+   all its historical inverse acquaintances are recent enough and 
+ *)
+Completeness == (M!Quiescent \intersect SnapshotsSufficient) \subseteq M!AppearsQuiescent
 
 ====
