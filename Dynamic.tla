@@ -146,7 +146,7 @@ AppearsPotentiallyUnblocked ==
 
 AppearsQuiescent == pdom(snapshots) \ AppearsPotentiallyUnblocked
 
-Safety == AppearsQuiescent \subseteq Quiescent
+Soundness == AppearsQuiescent \subseteq Quiescent
 
 -----------------------------------------------------------------------------
 
@@ -179,6 +179,6 @@ SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
 (* If an actor is garbage and its snapshot is up to date and the snapshots of
    all its historical inverse acquaintances are recent enough and 
  *)
-Liveness == (Quiescent \intersect SnapshotsSufficient) \subseteq AppearsQuiescent
+Completeness == (Quiescent \intersect SnapshotsSufficient) \subseteq AppearsQuiescent
 
 ====

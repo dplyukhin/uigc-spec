@@ -109,9 +109,9 @@ PotentiallyUnblocked ==
 
 Quiescent == pdom(actors) \ PotentiallyUnblocked
 
-(* The previous safety property no longer holds because actors can now become
+(* The previous soundness property no longer holds because actors can now become
    busy by receiving signals from crashed actors or messages from external actors. *)
-OldSafety == D!AppearsQuiescent \subseteq Quiescent
+OldSoundness == D!AppearsQuiescent \subseteq Quiescent
 
 appearsMonitoredBy(a) == snapshots[a].monitored
 AppearsReceptionist == { a \in pdom(snapshots) : snapshots[a].isReceptionist }
@@ -134,7 +134,7 @@ AppearsPotentiallyUnblocked ==
 
 AppearsQuiescent == pdom(snapshots) \ AppearsPotentiallyUnblocked
 
-Safety == AppearsQuiescent \subseteq Quiescent
+Soundness == AppearsQuiescent \subseteq Quiescent
 
 -----------------------------------------------------------------------------
 
@@ -159,6 +159,6 @@ SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
 (* If an actor is garbage and its snapshot is up to date and the snapshots of
    all its historical inverse acquaintances are recent enough and 
  *)
-Liveness == (Quiescent \intersect SnapshotsSufficient) \subseteq AppearsQuiescent
+Completeness == (Quiescent \intersect SnapshotsSufficient) \subseteq AppearsQuiescent
 
 ====
