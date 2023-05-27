@@ -35,48 +35,31 @@ ExiledActors   == { a \in ActorName : location[a] \in ExiledNodes }
 
 -----------------------------------------------------------------------------
 
-Idle       == M!Idle       /\ UNCHANGED <<location,nodeStatus,oracle>>
-Deactivate == M!Deactivate /\ UNCHANGED <<location,nodeStatus,oracle>>
-Send       == M!Send       /\ UNCHANGED <<location,nodeStatus,oracle>>
-Snapshot   == M!Snapshot   /\ UNCHANGED <<location,nodeStatus,oracle>>
-Crash      == M!Crash      /\ UNCHANGED <<location,nodeStatus,oracle>>
-Monitor    == M!Monitor    /\ UNCHANGED <<location,nodeStatus,oracle>>
-Register   == M!Register   /\ UNCHANGED <<location,nodeStatus,oracle>>
-Wakeup     == M!Wakeup     /\ UNCHANGED <<location,nodeStatus,oracle>>
-Unregister == M!Unregister /\ UNCHANGED <<location,nodeStatus,oracle>>
+Idle(a)         == M!Idle(a)         /\ UNCHANGED <<location,nodeStatus,oracle>>
+Deactivate(a,b) == M!Deactivate(a,b) /\ UNCHANGED <<location,nodeStatus,oracle>>
+Send(a,b,m)     == M!Send(a,b,m)     /\ UNCHANGED <<location,nodeStatus,oracle>>
+Snapshot(a)     == M!Snapshot(a)     /\ UNCHANGED <<location,nodeStatus,oracle>>
+Crash(a)        == M!Crash(a)        /\ UNCHANGED <<location,nodeStatus,oracle>>
+Monitor(a,b)    == M!Monitor(a,b)    /\ UNCHANGED <<location,nodeStatus,oracle>>
+Notify(a,b)     == M!Notify(a,b)     /\ UNCHANGED <<location,nodeStatus,oracle>>
+Register(a)     == M!Register(a)     /\ UNCHANGED <<location,nodeStatus,oracle>>
+Wakeup(a)       == M!Wakeup(a)       /\ UNCHANGED <<location,nodeStatus,oracle>>
+Unregister(a)   == M!Unregister(a)   /\ UNCHANGED <<location,nodeStatus,oracle>>
 
-Drop == \E m \in BagToSet(msgs) : \E node \in NodeID : location[m.target] = node
+Drop(m) == 
+    LET node == location[m.target] IN
     /\ msgs' = remove(msgs, m)
     /\ oracle' = [oracle EXCEPT ![node].dropped = put(@, m)]
     /\ UNCHANGED <<actors,snapshots,nodeStatus,location>>
 
-Receive == \E a \in IdleActors : \E m \in msgsTo(a) : \E node \in NodeID : location[m.target] = node
-    /\ actors' = [actors EXCEPT 
-        ![a].active = @ ++ [c \in m.refs |-> 1],
-        ![a].recvCount = @ + 1, 
-        ![a].status = "busy"]
-    (* Remove m from the msgs bag. *)
-    /\ msgs' = remove(msgs, m)
-    /\ oracle' = [oracle EXCEPT ![node].delivered = put(@, m)]  \* NEW: Update the oracle.
-    /\ UNCHANGED <<snapshots,nodeStatus,location>>
+Receive(a,m) == M!Receive(a,m) /\
+    LET node == location[a] IN
+    /\ oracle' = [oracle EXCEPT ![node].delivered = put(@, m)]
+    /\ UNCHANGED <<nodeStatus,location>>
 
-Notify ==
-    \* NEW: Monitored actors can be notified about actors on exiled nodes
-    \E a \in IdleActors : \E b \in (CrashedActors \union ExiledActors) \intersect M!monitoredBy(a) :
-    /\ actors' = [actors EXCEPT ![a].status = "busy", ![a].monitored = @ \ {b}]
-    /\ UNCHANGED <<msgs,snapshots,nodeStatus,oracle,location>>
-
-Spawn == 
-    \E a \in BusyActors : \E b \in FreshActorName : \E node \in NonFaultyNodes :
-    /\ actors' = [actors EXCEPT 
-        ![a].active[b] = 1,
-        ![b] = [ 
-            M!InitialActorState EXCEPT 
-            !.active  = @ ++ (b :> 1),
-            !.created = @ ++ (<<b,b>> :> 1 @@ <<a,b>> :> 1)
-        ]]
-    /\ location' = [location EXCEPT ![b] = node]  \* NEW: The actor is spawned at a nonfaulty node.
-    /\ UNCHANGED <<snapshots,msgs,nodeStatus,oracle>>
+Spawn(a,b,node) == M!Spawn(a,b) /\
+    /\ location' = [location EXCEPT ![b] = node]
+    /\ UNCHANGED <<nodeStatus,oracle>>
 
 (* 
 When a node is exiled:
@@ -85,9 +68,23 @@ When a node is exiled:
 *)
 Exile == TRUE
 
-Next == Idle \/ Deactivate \/ Send \/ Receive \/ Snapshot \/ Spawn \/ 
-        Crash \/ Monitor \/ Notify \/ Register \/ Wakeup \/ Unregister \/ 
-        Drop
+Next ==
+    \/ \E a \in BusyActors: Idle(a)
+    \/ \E a \in BusyActors: \E b \in FreshActorName: \E n \in NonFaultyNodes: Spawn(a,b,n)
+        \* NEW: Actors are spawned onto a specific node
+    \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
+    \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
+        Send(a,b,[target |-> b, refs |-> refs])
+    \/ \E a \in IdleActors: \E m \in msgsTo(a): Receive(a,m)
+    \/ \E a \in IdleActors \union BusyActors \union CrashedActors: Snapshot(a)
+    \/ \E a \in BusyActors: Crash(a)
+    \/ \E a \in BusyActors: \E b \in acqs(a): Monitor(a,b)
+    \/ \E a \in IdleActors: \E b \in (CrashedActors \union ExiledActors) \intersect M!monitoredBy(a): Notify(a,b)
+        \* NEW: Actors are notified when monitored actors are exiled.
+    \/ \E a \in BusyActors \ Receptionists: Register(a)
+    \/ \E a \in IdleActors \intersect Receptionists: Wakeup(a)
+    \/ \E a \in BusyActors \intersect Receptionists: Unregister(a)
+    \/ \E m \in BagToSet(msgs): Drop(m)
 
 -----------------------------------------------------------------------------
 

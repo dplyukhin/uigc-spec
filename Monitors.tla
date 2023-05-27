@@ -41,13 +41,13 @@ Init ==
     /\ actors = [a \in ActorName |-> IF a = actor THEN state ELSE null ]
     /\ snapshots = [a \in ActorName |-> null]
 
-Idle == D!Idle 
-Deactivate == D!Deactivate 
-Send == D!Send 
-Receive == D!Receive
+Idle(a)         == D!Idle(a)
+Deactivate(a,b) == D!Deactivate(a,b)
+Send(a,b,m)     == D!Send(a,b,m)
+Receive(a,m)    == D!Receive(a,m)
+Snapshot(a)     == D!Snapshot(a)
 
-Spawn == 
-    \E a \in BusyActors : \E b \in FreshActorName :
+Spawn(a,b) == 
     /\ actors' = [actors EXCEPT 
         ![a].active[b] = 1,                                 \* Parent has a reference to the child.
         ![b] = [ 
@@ -58,44 +58,45 @@ Spawn ==
         ]
     /\ UNCHANGED <<snapshots,msgs>>
 
-Snapshot == 
-    \E a \in IdleActors \union BusyActors \union CrashedActors :
-    /\ snapshots[a] = null
-    /\ snapshots' = [snapshots EXCEPT ![a] = actors[a]]
-    /\ UNCHANGED <<msgs,actors>>
-
-Crash ==
-    \E a \in BusyActors :
+Crash(a) ==
     /\ actors' = [actors EXCEPT ![a].status = "crashed"]
     /\ UNCHANGED <<msgs,snapshots>>
 
-Monitor ==
-    \E a \in BusyActors : \E b \in acqs(a) :
+Monitor(a,b) ==
     /\ actors' = [actors EXCEPT ![a].monitored = @ \union {b}]
     /\ UNCHANGED <<msgs,snapshots>>
 
-Notify ==
-    \E a \in IdleActors : \E b \in CrashedActors \intersect monitoredBy(a) :
+Notify(a,b) ==
     /\ actors' = [actors EXCEPT ![a].status = "busy", ![a].monitored = @ \ {b}]
     /\ UNCHANGED <<msgs,snapshots>>
 
-Register ==
-    \E a \in BusyActors \ Receptionists :
+Register(a) ==
     /\ actors' = [actors EXCEPT ![a].isReceptionist = TRUE]
     /\ UNCHANGED <<msgs,snapshots>>
 
-Wakeup ==
-    \E a \in IdleActors \intersect Receptionists :
+Wakeup(a) ==
     /\ actors' = [actors EXCEPT ![a].status = "busy"]
     /\ UNCHANGED <<msgs,snapshots>>
 
-Unregister ==
-    \E a \in BusyActors \intersect Receptionists :
+Unregister(a) ==
     /\ actors' = [actors EXCEPT ![a].isReceptionist = FALSE]
     /\ UNCHANGED <<msgs,snapshots>>
 
-Next == Idle \/ Deactivate \/ Send \/ Receive \/ Snapshot \/ Spawn \/ 
-        Crash \/ Monitor \/ Notify \/ Register \/ Wakeup \/ Unregister
+Next == 
+    \/ \E a \in BusyActors: Idle(a)
+    \/ \E a \in BusyActors: \E b \in FreshActorName: Spawn(a,b)
+    \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
+    \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
+        Send(a,b,[target |-> b, refs |-> refs])
+    \/ \E a \in IdleActors: \E m \in msgsTo(a): Receive(a,m)
+    \/ \E a \in IdleActors \union BusyActors \union CrashedActors : Snapshot(a)
+        \* NEW: Crashed actors can now take snapshots.
+    \/ \E a \in BusyActors: Crash(a)
+    \/ \E a \in BusyActors: \E b \in acqs(a): Monitor(a,b)
+    \/ \E a \in IdleActors: \E b \in CrashedActors \intersect monitoredBy(a): Notify(a,b)
+    \/ \E a \in BusyActors \ Receptionists: Register(a)
+    \/ \E a \in IdleActors \intersect Receptionists : Wakeup(a)
+    \/ \E a \in BusyActors \intersect Receptionists : Unregister(a)
 
 
 -----------------------------------------------------------------------------

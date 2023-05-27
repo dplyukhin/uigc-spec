@@ -2,17 +2,6 @@
 EXTENDS Common, Integers, FiniteSets, Bags, TLC
 
 (*
-NOTES ON THIS MODULE
-
-- Exhaustive search is intractable for any execution long
-  enough to manifest a bug. So use '-simulate' to generate
-  random executions.
-- If you find a bug, you want to try and find a small witness.
-  Best bet is to use '-simulate -depth N' to only search executions
-  of length up to N.
-*)
-
-(*
 ActorState represents the GC-relevant state of an actor.
 - status indicates whether the actor is currently processing a message.
 - recvCount is the number of messages that this actor has received.
@@ -64,13 +53,11 @@ Init ==
 
 -----------------------------------------------------------------------------
 
-Idle ==
-    \E a \in BusyActors :
+Idle(a) ==
     /\ actors' = [actors EXCEPT ![a].status = "idle"]
     /\ UNCHANGED <<msgs,snapshots>>
 
-Spawn == 
-    \E a \in BusyActors : \E b \in FreshActorName :
+Spawn(a,b) == 
     /\ actors' = [actors EXCEPT 
         ![a].active[b] = 1,                                 \* Parent has a reference to the child.
         ![b] = [ 
@@ -81,26 +68,23 @@ Spawn ==
         ]
     /\ UNCHANGED <<snapshots,msgs>>
 
-Deactivate ==
-    \E a \in BusyActors : \E b \in acqs(a) :
+Deactivate(a,b) ==
     /\ actors' = [actors EXCEPT 
         ![a].deactivated[b] = @ + actors[a].active[b],
         ![a].active[b] = 0
         ]
     /\ UNCHANGED <<msgs,snapshots>>
 
-Send ==
-    \E a \in BusyActors : \E b \in acqs(a) : \E refs \in SUBSET acqs(a) :
+Send(a,b,m) ==
     /\ actors' = [actors EXCEPT 
         ![a].sendCount[b] = @ + 1,
-        ![a].created = @ ++ [ <<x, y>> \in {b} \X refs |-> 1 ]
+        ![a].created = @ ++ [ <<x, y>> \in {b} \X m.refs |-> 1 ]
         ]
     (* Add this message to the msgs bag. *)
-    /\ msgs' = put(msgs, [target |-> b, refs |-> refs])
+    /\ msgs' = put(msgs, m)
     /\ UNCHANGED <<snapshots>>
 
-Receive ==
-    \E a \in IdleActors : \E m \in msgsTo(a) :
+Receive(a,m) ==
     /\ actors' = [actors EXCEPT 
         ![a].active = @ ++ [c \in m.refs |-> 1],
         ![a].recvCount = @ + 1, 
@@ -109,13 +93,19 @@ Receive ==
     /\ msgs' = remove(msgs, m)
     /\ UNCHANGED <<snapshots>>
 
-Snapshot == 
-    \E a \in IdleActors \union BusyActors :
+Snapshot(a) == 
     /\ snapshots[a] = null
     /\ snapshots' = [snapshots EXCEPT ![a] = actors[a]]
     /\ UNCHANGED <<msgs,actors>>
 
-Next == Idle \/ Spawn \/ Deactivate \/ Send \/ Receive \/ Snapshot
+Next == 
+    \/ \E a \in BusyActors: Idle(a)
+    \/ \E a \in BusyActors: \E b \in FreshActorName: Spawn(a,b)
+    \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
+    \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
+        Send(a,b,[target |-> b, refs |-> refs])
+    \/ \E a \in IdleActors: \E m \in msgsTo(a): Receive(a,m)
+    \/ \E a \in IdleActors \union BusyActors: Snapshot(a)
 
 -----------------------------------------------------------------------------
 
