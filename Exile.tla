@@ -9,8 +9,13 @@ VARIABLE nodeStatus, oracle, location
 (* Import operators from the Monitors model. *)
 M == INSTANCE Monitors
 
+(* In order to model exile, messages are now tagged with the ID of the sender node. *)
+Message == [origin: NodeID, target: ActorName, refs : SUBSET ActorName] 
+
 TypeOK == 
-  /\ M!TypeOK
+  /\ actors         \in [ActorName -> M!ActorState \cup {null}]
+  /\ snapshots      \in [ActorName -> M!ActorState \cup {null}]
+  /\ BagToSet(msgs) \subseteq Message
   /\ nodeStatus \in [NodeID -> {"up", "down"}] \* Each node is either up or down.
   /\ DOMAIN oracle = NodeID                    \* Each node has an oracle tracking messages.
   /\ \A n \in NodeID : 
@@ -64,9 +69,14 @@ Spawn(a,b,node) == M!Spawn(a,b) /\
 (* 
 When a node is exiled:
 1. All actors located on the node are removed from the configuration.
-2. All messages *to or from* the node are removed.
+2. All messages to or from the node are removed.
 *)
-Exile == TRUE
+Exile(nodes) ==
+    /\ actors' = [a \in ActorName |-> IF location[a] \in nodes THEN null ELSE actors[a]]
+    /\ msgs' = removeWhere(msgs, LAMBDA msg: 
+                msg.origin \in nodes /\ location[msg.target] \in nodes)
+    /\ nodeStatus' = [node \in NodeID |-> IF node \in nodes THEN "down" ELSE nodeStatus[node]]
+    /\ UNCHANGED <<snapshots,location,oracle>>
 
 Next ==
     \/ \E a \in BusyActors: Idle(a)
@@ -74,7 +84,7 @@ Next ==
         \* NEW: Actors are spawned onto a specific node
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
     \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
-        Send(a,b,[target |-> b, refs |-> refs])
+        Send(a,b,[origin |-> location[a], target |-> b, refs |-> refs])
     \/ \E a \in IdleActors: \E m \in msgsTo(a): Receive(a,m)
     \/ \E a \in IdleActors \union BusyActors \union CrashedActors: Snapshot(a)
     \/ \E a \in BusyActors: Crash(a)
@@ -85,6 +95,7 @@ Next ==
     \/ \E a \in IdleActors \intersect Receptionists: Wakeup(a)
     \/ \E a \in BusyActors \intersect Receptionists: Unregister(a)
     \/ \E m \in BagToSet(msgs): Drop(m)
+    \/ \E nodes \in SUBSET NonFaultyNodes: Exile(nodes)
 
 -----------------------------------------------------------------------------
 

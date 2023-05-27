@@ -14,11 +14,6 @@ VARIABLE
 (* `null' is an arbitrary value used to signal that an expression was undefined. *)
 CONSTANT null
 
-(* A message consists of (a) the name of the destination actor, and (b) a set
-   of references to other actors. Any other data a message could contain is 
-   irrelevant for our purposes. *)
-Message == [target: ActorName, refs : SUBSET ActorName] 
-
 -----------------------------------------------------------------------------
 
 (* Assuming map1 has type [D1 -> Nat] and map2 has type [D2 -> Nat] where D2
@@ -27,7 +22,9 @@ map1 ++ map2 == [ a \in DOMAIN map1 |-> IF a \in DOMAIN map2
                                         THEN map1[a] + map2[a] 
                                         ELSE map1[a] ]
 
-(* Notation for manipulating bags, i.e. multisets. *)
+(* Notation for manipulating bags, i.e. multisets. TLA+ represents bags as 
+functions from a set of elements to a count of how many elements are in the bag.
+*)
 put(bag, x)    == bag (+) SetToBag({x})      \* Adds x to the bag.
 remove(bag, x) == bag (-) SetToBag({x})      \* Removes x from the bag.
 RECURSIVE removeAll(_, _)                    \* Removes all of S from the bag.
@@ -35,6 +32,9 @@ removeAll(bag, S) ==
     IF S = {} THEN bag ELSE 
     LET x == CHOOSE x \in S : TRUE IN
     removeAll(remove(bag, x), S \ {x})
+removeWhere(bag, F(_)) ==                    \* Removes all elements satisfying F(_).
+    LET S == { x \in DOMAIN bag : F(x) } IN 
+    [x \in DOMAIN bag \ S |-> bag[x]]
 
 (* Computes the sum `^$\sum_{x \in dom(f)} f(x)$^'. *)
 RECURSIVE sumOver(_, _)

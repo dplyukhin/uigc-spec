@@ -19,7 +19,7 @@ ActorState == [
 TypeOK == 
   /\ actors         \in [ActorName -> ActorState \cup {null}]
   /\ snapshots      \in [ActorName -> ActorState \cup {null}]
-  /\ BagToSet(msgs) \subseteq Message
+  /\ BagToSet(msgs) \subseteq D!Message
 
 InitialActorState ==
     D!InitialActorState @@ [

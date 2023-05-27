@@ -19,6 +19,11 @@ ActorState == [
     created     : [ActorName \X ActorName -> Nat]
 ]
 
+(* A message consists of (a) the name of the destination actor, and (b) a set
+   of references to other actors. Any other data a message could contain is 
+   irrelevant for our purposes. *)
+Message == [target: ActorName, refs : SUBSET ActorName] 
+
 (*
 - actors is a partial mapping from actor names to actor states.
 - snapshots is also a partial mapping from actor names to actor states.
