@@ -27,11 +27,11 @@ map1 ++ map2 == [ a \in DOMAIN map1 |-> IF a \in DOMAIN map2
                                         THEN map1[a] + map2[a] 
                                         ELSE map1[a] ]
 
-(* Convenient notation for adding and removing from bags of messages. *)
-put(bag, x)    == bag (+) SetToBag({x})
-remove(bag, x) == bag (-) SetToBag({x})
-RECURSIVE removeAll(_, _)
-removeAll(bag, S) == 
+(* Notation for manipulating bags, i.e. multisets. *)
+put(bag, x)    == bag (+) SetToBag({x})      \* Adds x to the bag.
+remove(bag, x) == bag (-) SetToBag({x})      \* Removes x from the bag.
+RECURSIVE removeAll(_, _)                    \* Removes all of S from the bag.
+removeAll(bag, S) ==
     IF S = {} THEN bag ELSE 
     LET x == CHOOSE x \in S : TRUE IN
     removeAll(remove(bag, x), S \ {x})

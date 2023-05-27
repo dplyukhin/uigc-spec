@@ -57,11 +57,11 @@ Soundness == M!Soundness
 
 SnapshotUpToDate(a) == 
     /\ actors[a] = snapshots[a]
-    /\ droppedMsgsTo(a) = {}   \* The actor has been notified about all dropped messages
+    /\ droppedMsgsTo(a) = {}   \* The actor has been notified about all dropped messages.
 
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
-    /\ (~SnapshotUpToDate(a) => a \in S)
+    /\ (~SnapshotUpToDate(a) => a \in S) \* NEW: The definition of "up to date" has been expanded.
     /\ (~M!RecentEnough(a,b) => b \in S)
     /\ (a \in S /\ a \in piacqs(b) => b \in S)
     /\ (a \in S /\ a \in M!monitoredBy(b) => b \in S)
