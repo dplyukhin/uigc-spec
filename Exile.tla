@@ -24,6 +24,7 @@ Init == D!Init /\
 
 -----------------------------------------------------------------------------
 
+NonFaultyNodes == { n \in NodeID : nodeStatus[n] = "up" }
 ExiledNodes    == { n \in NodeID : nodeStatus[n] = "down" }
 ExiledActors   == { a \in ActorName : location[a] \in ExiledNodes }
 
@@ -48,7 +49,7 @@ Notify ==
     /\ UNCHANGED <<msgs,snapshots>>
 
 Spawn == 
-    \E a \in BusyActors : \E b \in FreshActorName : \E node \in ExiledNodes :
+    \E a \in BusyActors : \E b \in FreshActorName : \E node \in NonFaultyNodes :
     /\ actors' = [actors EXCEPT 
         ![a].active[b] = 1,
         ![b] = [ 
@@ -56,7 +57,7 @@ Spawn ==
             !.active  = @ ++ (b :> 1),
             !.created = @ ++ (<<b,b>> :> 1 @@ <<a,b>> :> 1)
         ]]
-    /\ location' = [location EXCEPT ![a] = node]  \* NEW: The actor is spawned at a nonfaulty node.
+    /\ location' = [location EXCEPT ![b] = node]  \* NEW: The actor is spawned at a nonfaulty node.
     /\ UNCHANGED <<snapshots,msgs,droppedMsgs,nodeStatus>>
 
 Next == Idle \/ Deactivate \/ Send \/ Receive \/ Snapshot \/ Spawn \/ 
