@@ -19,6 +19,19 @@ droppedMsgsTo(a) == { m \in BagToSet(droppedMsgs) : m.target = a }
 
 -----------------------------------------------------------------------------
 
+Idle       == M!Idle       /\ UNCHANGED <<droppedMsgs>>
+Deactivate == M!Deactivate /\ UNCHANGED <<droppedMsgs>>
+Send       == M!Send       /\ UNCHANGED <<droppedMsgs>>
+Receive    == M!Receive    /\ UNCHANGED <<droppedMsgs>>
+Snapshot   == M!Snapshot   /\ UNCHANGED <<droppedMsgs>>
+Spawn      == M!Spawn      /\ UNCHANGED <<droppedMsgs>>
+Crash      == M!Crash      /\ UNCHANGED <<droppedMsgs>>
+Monitor    == M!Monitor    /\ UNCHANGED <<droppedMsgs>>
+Notify     == M!Notify     /\ UNCHANGED <<droppedMsgs>>
+Register   == M!Register   /\ UNCHANGED <<droppedMsgs>>
+Wakeup     == M!Wakeup     /\ UNCHANGED <<droppedMsgs>>
+Unregister == M!Unregister /\ UNCHANGED <<droppedMsgs>>
+
 Drop == \E m \in BagToSet(msgs) :
     /\ msgs' = remove(msgs, m)
     /\ droppedMsgs' = put(droppedMsgs, m)
@@ -34,7 +47,9 @@ DropOracle == \E a \in pdom(actors) : \E S \in SUBSET droppedMsgsTo(a) :
     /\ droppedMsgs' = removeAll(droppedMsgs, S)
     /\ UNCHANGED <<msgs,snapshots>>
 
-Next == (M!Next /\ UNCHANGED <<droppedMsgs>>) \/ Drop \/ DropOracle
+Next == Idle \/ Deactivate \/ Send \/ Receive \/ Snapshot \/ Spawn \/ 
+        Crash \/ Monitor \/ Notify \/ Register \/ Wakeup \/ Unregister \/ 
+        Drop \/ DropOracle
 
 -----------------------------------------------------------------------------
 

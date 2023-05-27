@@ -1,68 +1,67 @@
 ---- MODULE Exile ----
-(* This model extends the Dropped model with faulty nodes.  *)
+(* This model extends the Dropped model with dropped messages and faulty nodes.  *)
 EXTENDS Common, Integers, FiniteSets, Bags, TLC
 
-(* Every node has a unique ID and a status. *)
+(* Every node has a unique ID and a status. Every actor has a fixed location. *)
 CONSTANT NodeID
-VARIABLE droppedMsgs, nodeStatus
+VARIABLE droppedMsgs, nodeStatus, location
 
-(* Operators from the Dropped model are imported within the `D' namespace. *)
+(* Import operators from the Dropped and Monitors models. *)
 D == INSTANCE Dropped WITH droppedMsgs <- droppedMsgs
-
-ActorState == [
-    status         : {"busy", "idle", "crashed"},
-    recvCount      : Nat,
-    sendCount      : [ActorName -> Nat],
-    active         : [ActorName -> Nat],
-    deactivated    : [ActorName -> Nat],
-    created        : [ActorName \X ActorName -> Nat],
-    monitored      : SUBSET ActorName,
-    isReceptionist : BOOLEAN,
-    location       : NodeID   \* NEW: Actors are located on nodes.
-]
+M == INSTANCE Monitors
 
 TypeOK == 
-  /\ actors \in [ActorName -> ActorState \cup {null}]
-  /\ snapshots \in [ActorName -> ActorState \cup {null}]
+  /\ D!TypeOK
+  /\ location \in [ActorName -> NodeID \cup {null}] \* NEW: Each actor has a location.
+  /\ \A a \in ActorName : actors[a] # null => location[a] # null
   /\ nodeStatus \in [NodeID -> {"up", "down"}] \* NEW: Each node is either up or down.
-  /\ BagToSet(msgs) \subseteq Message
-  /\ BagToSet(droppedMsgs) \subseteq Message
 
-Init ==   
-    LET actor == CHOOSE a \in ActorName: TRUE 
-        state == [ D!InitialActorState EXCEPT 
-                   !.active  = @ ++ (actor :> 1),
-                   !.created = @ ++ (<<actor, actor>> :> 1),
-                   !.isReceptionist = TRUE
-                   \* NEW: Choose an arbitrary node for the initial actor's location.
-                 ] @@ ("location" :> CHOOSE node \in NodeID: TRUE)
-    IN
-    /\ msgs = EmptyBag
-    /\ actors = [a \in ActorName |-> IF a = actor THEN state ELSE null ]
-    /\ snapshots = [a \in ActorName |-> null]
-    /\ droppedMsgs = EmptyBag
+Init == D!Init /\
+    LET actor == CHOOSE a \in ActorName: actors[a] # null \* The initial actor.
+        node  == CHOOSE node \in NodeID: TRUE IN          \* The initial actor's location.
+    /\ location = [a \in ActorName |-> IF a = actor THEN node ELSE null]
     /\ nodeStatus = [n \in NodeID |-> "up"]  \* NEW: Every node is initially "up".
 
 -----------------------------------------------------------------------------
 
-NonFaultyNode = { n \in NodeID : nodeStatus[n] = "up" }
-FaultyNode    = { n \in NodeID : nodeStatus[n] = "down" }
+ExiledNodes    == { n \in NodeID : nodeStatus[n] = "down" }
+ExiledActors   == { a \in ActorName : location[a] \in ExiledNodes }
 
 -----------------------------------------------------------------------------
 
+Idle       == D!Idle       /\ UNCHANGED <<location,nodeStatus>>
+Deactivate == D!Deactivate /\ UNCHANGED <<location,nodeStatus>>
+Send       == D!Send       /\ UNCHANGED <<location,nodeStatus>>
+Receive    == D!Receive    /\ UNCHANGED <<location,nodeStatus>>
+Snapshot   == D!Snapshot   /\ UNCHANGED <<location,nodeStatus>>
+Crash      == D!Crash      /\ UNCHANGED <<location,nodeStatus>>
+Monitor    == D!Monitor    /\ UNCHANGED <<location,nodeStatus>>
+Register   == D!Register   /\ UNCHANGED <<location,nodeStatus>>
+Wakeup     == D!Wakeup     /\ UNCHANGED <<location,nodeStatus>>
+Unregister == D!Unregister /\ UNCHANGED <<location,nodeStatus>>
+Drop       == D!Drop       /\ UNCHANGED <<location,nodeStatus>>
+
+Notify ==
+    \* NEW: Monitored actors can be notified about actors on exiled nodes
+    \E a \in IdleActors : \E b \in (CrashedActors \union ExiledActors) \intersect M!monitoredBy(a) :
+    /\ actors' = [actors EXCEPT ![a].status = "busy", ![a].monitored = @ \ {b}]
+    /\ UNCHANGED <<msgs,snapshots>>
+
 Spawn == 
-    \E a \in BusyActors : \E b \in FreshActorName : \E node \in NonFaultyNode :
+    \E a \in BusyActors : \E b \in FreshActorName : \E node \in ExiledNodes :
     /\ actors' = [actors EXCEPT 
         ![a].active[b] = 1,
         ![b] = [ 
             D!InitialActorState EXCEPT 
             !.active  = @ ++ (b :> 1),
             !.created = @ ++ (<<b,b>> :> 1 @@ <<a,b>> :> 1)
-        ] @@ ("location" :> node)  \* NEW: The child may be spawned on any nonfaulty node.
-        ]
+        ]]
+    /\ location' = [location EXCEPT ![a] = node]  \* NEW: The actor is spawned at a nonfaulty node.
     /\ UNCHANGED <<snapshots,msgs,droppedMsgs,nodeStatus>>
 
-Next == D!Next /\ UNCHANGED <<nodeStatus>>
+Next == Idle \/ Deactivate \/ Send \/ Receive \/ Snapshot \/ Spawn \/ 
+        Crash \/ Monitor \/ Notify \/ Register \/ Wakeup \/ Unregister \/ 
+        Drop
 
 -----------------------------------------------------------------------------
 
