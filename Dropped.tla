@@ -5,8 +5,9 @@ EXTENDS Common, Integers, FiniteSets, Bags, TLC
 (* Operators from the Monitors model are imported within the `M' namespace. *)
 M == INSTANCE Monitors
 
-VARIABLE 
-    droppedMsgs \* We add this to the configuration to track dropped messages.
+VARIABLE droppedMsgs \* This variable tracks dropped messages in the configuration.
+
+InitialActorState == M!InitialActorState
 
 TypeOK == M!TypeOK /\ BagToSet(droppedMsgs) \subseteq Message
 

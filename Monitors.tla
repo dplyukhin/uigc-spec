@@ -41,6 +41,11 @@ Init ==
     /\ actors = [a \in ActorName |-> IF a = actor THEN state ELSE null ]
     /\ snapshots = [a \in ActorName |-> null]
 
+Idle == D!Idle 
+Deactivate == D!Deactivate 
+Send == D!Send 
+Receive == D!Receive
+
 Spawn == 
     \E a \in BusyActors : \E b \in FreshActorName :
     /\ actors' = [actors EXCEPT 
@@ -89,7 +94,7 @@ Unregister ==
     /\ actors' = [actors EXCEPT ![a].isReceptionist = FALSE]
     /\ UNCHANGED <<msgs,snapshots>>
 
-Next == D!Idle \/ D!Deactivate \/ D!Send \/ D!Receive \/ Snapshot \/ Spawn \/ 
+Next == Idle \/ Deactivate \/ Send \/ Receive \/ Snapshot \/ Spawn \/ 
         Crash \/ Monitor \/ Notify \/ Register \/ Wakeup \/ Unregister
 
 
