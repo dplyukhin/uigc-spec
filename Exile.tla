@@ -135,6 +135,7 @@ Quiescent ==
 (* APPARENT GARBAGE *)
 
 AppearsClosed == M!AppearsClosed
+AppearsCrashed == M!AppearsCrashed
 AppearsFaulty == M!AppearsCrashed \union ExiledActors \* Nodes have common knowledge about exiled actors.
 AppearsReceptionist == M!AppearsReceptionist
 AppearsUnblocked == M!AppearsUnblocked
@@ -143,26 +144,26 @@ appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
 
 appearsPotentiallyUnblockedUpToAFault(S) == 
     /\ pdom(snapshots) \ AppearsClosed \subseteq S
-    /\ AppearsReceptionist \ AppearsFaulty \subseteq S
-    /\ AppearsUnblocked \ AppearsFaulty \subseteq S
-    /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsFaulty :
+    /\ AppearsReceptionist \ AppearsCrashed \subseteq S \* NEW: Exiled actors still appear potentially unblocked
+    /\ AppearsUnblocked \ AppearsCrashed \subseteq S
+    /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsCrashed :
         /\ (a \in S \intersect apparentIAcqs(b) => b \in S)
         /\ (a \in (S \union AppearsFaulty) \intersect appearsMonitoredBy(b) => b \in S)
             \* NEW: An actor is not garbage if it monitors an exiled actor
 
 appearsPotentiallyUnblocked(S) == 
     /\ appearsPotentiallyUnblockedUpToAFault(S)
-    /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsFaulty :
+    /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsCrashed :
         /\ (a \in appearsMonitoredBy(b) /\ location[a] # location[b] => b \in S)
             \* NEW: Actors that monitor remote actors are not garbage
 
 AppearsPotentiallyUnblockedUpToAFault == 
-    CHOOSE S \in SUBSET pdom(snapshots) \ AppearsFaulty : appearsPotentiallyUnblockedUpToAFault(S)
+    CHOOSE S \in SUBSET pdom(snapshots) \ AppearsCrashed : appearsPotentiallyUnblockedUpToAFault(S)
 AppearsQuiescentUpToAFault == 
     (pdom(snapshots) \ ExiledActors) \ AppearsPotentiallyUnblockedUpToAFault
 
 AppearsPotentiallyUnblocked == 
-    CHOOSE S \in SUBSET pdom(snapshots) \ AppearsFaulty : appearsPotentiallyUnblocked(S)
+    CHOOSE S \in SUBSET pdom(snapshots) \ AppearsCrashed : appearsPotentiallyUnblocked(S)
 AppearsQuiescent == 
     (pdom(snapshots) \ ExiledActors) \ AppearsPotentiallyUnblocked
 
