@@ -36,7 +36,7 @@ Init == M!Init /\
 (* SET DEFINITIONS *)
 
 ExiledNodes     == { n \in NodeID : nodeStatus[n] = "down" }
-ExiledActors    == { a \in ActorName : location[a] \in ExiledNodes }
+ExiledActors    == { a \in pdom(actors) : actors[a].status = "exiled" }
 FaultyActors    == ExiledActors \union CrashedActors
 NonExiledNodes  == { n \in NodeID : nodeStatus[n] = "up" }
 NonExiledActors == pdom(actors) \ ExiledActors
@@ -72,7 +72,10 @@ Spawn(a,b,node) == M!Spawn(a,b) /\
     /\ UNCHANGED <<nodeStatus,oracle>>
 
 Exile(nodes) ==
-    /\ actors' = [a \in ActorName |-> IF location[a] \in nodes THEN null ELSE actors[a]]
+    /\ actors' = [a \in ActorName |-> 
+                    IF location[a] \notin nodes THEN actors[a] ELSE 
+                    [actors[a] EXCEPT !.status = "exiled"]
+                 ]
     /\ msgs' = removeWhere(msgs, LAMBDA msg: 
                 msg.origin \in nodes /\ location[msg.target] \in nodes)
     /\ nodeStatus' = [node \in NodeID |-> IF node \in nodes THEN "down" ELSE nodeStatus[node]]
@@ -121,12 +124,12 @@ isPotentiallyUnblocked(S) ==
 PotentiallyUnblockedUpToAFault == 
     CHOOSE S \in SUBSET pdom(actors) \ FaultyActors : isPotentiallyUnblockedUpToAFault(S)
 QuiescentUpToAFault == 
-    pdom(actors) \ PotentiallyUnblockedUpToAFault
+    (pdom(actors) \ ExiledActors) \ PotentiallyUnblockedUpToAFault
 
 PotentiallyUnblocked == 
     CHOOSE S \in SUBSET pdom(actors) \ FaultyActors : isPotentiallyUnblocked(S)
 Quiescent == 
-    pdom(actors) \ PotentiallyUnblocked
+    (pdom(actors) \ ExiledActors) \ PotentiallyUnblocked
 
 -----------------------------------------------------------------------------
 (* APPARENT GARBAGE *)
