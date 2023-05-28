@@ -33,12 +33,17 @@ Init == M!Init /\
     /\ location   = [a \in ActorName |-> IF a = actor THEN node ELSE null]
 
 -----------------------------------------------------------------------------
+(* SET DEFINITIONS *)
 
-NonFaultyNodes == { n \in NodeID : nodeStatus[n] = "up" }
-ExiledNodes    == { n \in NodeID : nodeStatus[n] = "down" }
-ExiledActors   == { a \in ActorName : location[a] \in ExiledNodes }
+ExiledNodes     == { n \in NodeID : nodeStatus[n] = "down" }
+ExiledActors    == { a \in ActorName : location[a] \in ExiledNodes }
+FaultyActors    == ExiledActors \union CrashedActors
+NonExiledNodes  == { n \in NodeID : nodeStatus[n] = "up" }
+NonExiledActors == pdom(actors) \ ExiledActors
+NonFaultyActors == pdom(actors) \ FaultyActors
 
 -----------------------------------------------------------------------------
+(* TRANSITION RULES *)
 
 Idle(a)         == M!Idle(a)         /\ UNCHANGED <<location,nodeStatus,oracle>>
 Deactivate(a,b) == M!Deactivate(a,b) /\ UNCHANGED <<location,nodeStatus,oracle>>
@@ -66,11 +71,6 @@ Spawn(a,b,node) == M!Spawn(a,b) /\
     /\ location' = [location EXCEPT ![b] = node]
     /\ UNCHANGED <<nodeStatus,oracle>>
 
-(* 
-When a node is exiled:
-1. All actors located on the node are removed from the configuration.
-2. All messages to or from the node are removed.
-*)
 Exile(nodes) ==
     /\ actors' = [a \in ActorName |-> IF location[a] \in nodes THEN null ELSE actors[a]]
     /\ msgs' = removeWhere(msgs, LAMBDA msg: 
@@ -80,26 +80,98 @@ Exile(nodes) ==
 
 Next ==
     \/ \E a \in BusyActors: Idle(a)
-    \/ \E a \in BusyActors: \E b \in FreshActorName: \E n \in NonFaultyNodes: Spawn(a,b,n)
-        \* NEW: Actors are spawned onto a specific node
+    \/ \E a \in BusyActors: \E b \in FreshActorName: \E n \in NonExiledNodes: Spawn(a,b,n)
+        \* NEW: Actors are spawned onto a specific (non-exiled) node.
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
-    \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
+    \/ \E a \in BusyActors: \E b \in acqs(a) \ FaultyActors: \E refs \in SUBSET acqs(a): 
         Send(a,b,[origin |-> location[a], target |-> b, refs |-> refs])
+        \* NEW: Messages are tagged with node locations and cannot be sent to faulty actors.
     \/ \E a \in IdleActors: \E m \in msgsTo(a): Receive(a,m)
     \/ \E a \in IdleActors \union BusyActors \union CrashedActors: Snapshot(a)
+        \* NB: Exiled actors do not take snapshots.
     \/ \E a \in BusyActors: Crash(a)
     \/ \E a \in BusyActors: \E b \in acqs(a): Monitor(a,b)
-    \/ \E a \in IdleActors: \E b \in (CrashedActors \union ExiledActors) \intersect M!monitoredBy(a): Notify(a,b)
+    \/ \E a \in IdleActors: \E b \in FaultyActors \intersect M!monitoredBy(a): Notify(a,b)
         \* NEW: Actors are notified when monitored actors are exiled.
     \/ \E a \in BusyActors \ Receptionists: Register(a)
     \/ \E a \in IdleActors \intersect Receptionists: Wakeup(a)
     \/ \E a \in BusyActors \intersect Receptionists: Unregister(a)
     \/ \E m \in BagToSet(msgs): Drop(m)
-    \/ \E nodes \in SUBSET NonFaultyNodes: Exile(nodes)
+    \/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
 
 -----------------------------------------------------------------------------
+(* ACTUAL GARBAGE *)
 
-Soundness == M!Soundness
+monitoredBy(b) == M!monitoredBy(b)
+
+isPotentiallyUnblockedUpToAFault(S) ==
+    /\ Receptionists \ FaultyActors \subseteq S
+    /\ Unblocked \ FaultyActors \subseteq S
+    /\ \A a \in pdom(actors), b \in pdom(actors) \ FaultyActors :
+        /\ (a \in S \intersect piacqs(b) => b \in S)
+        /\ (a \in (S \union FaultyActors) \intersect monitoredBy(b) => b \in S)
+            \* NEW: An actor is not garbage if it monitors an exiled actor
+
+isPotentiallyUnblocked(S) ==
+    /\ isPotentiallyUnblockedUpToAFault(S)
+    /\ \A a \in pdom(actors), b \in pdom(actors) \ FaultyActors :
+        /\ (a \in monitoredBy(b) /\ location[a] # location[b] => b \in S)
+            \* NEW: Actors that monitor remote actors are not garbage
+
+PotentiallyUnblockedUpToAFault == 
+    CHOOSE S \in SUBSET pdom(actors) \ FaultyActors : isPotentiallyUnblockedUpToAFault(S)
+QuiescentUpToAFault == 
+    pdom(actors) \ PotentiallyUnblockedUpToAFault
+
+PotentiallyUnblocked == 
+    CHOOSE S \in SUBSET pdom(actors) \ FaultyActors : isPotentiallyUnblocked(S)
+Quiescent == 
+    pdom(actors) \ PotentiallyUnblocked
+
+-----------------------------------------------------------------------------
+(* APPARENT GARBAGE *)
+
+AppearsClosed == M!AppearsClosed
+AppearsFaulty == M!AppearsCrashed \union ExiledActors \* Nodes have common knowledge about exiled actors.
+AppearsReceptionist == M!AppearsReceptionist
+AppearsUnblocked == M!AppearsUnblocked
+apparentIAcqs(b) == M!apparentIAcqs(b)
+appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
+
+appearsPotentiallyUnblockedUpToAFault(S) == 
+    /\ pdom(snapshots) \ AppearsClosed \subseteq S
+    /\ AppearsReceptionist \ AppearsFaulty \subseteq S
+    /\ AppearsUnblocked \ AppearsFaulty \subseteq S
+    /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsFaulty :
+        /\ (a \in S \intersect apparentIAcqs(b) => b \in S)
+        /\ (a \in (S \union AppearsFaulty) \intersect appearsMonitoredBy(b) => b \in S)
+            \* NEW: An actor is not garbage if it monitors an exiled actor
+
+appearsPotentiallyUnblocked(S) == 
+    /\ appearsPotentiallyUnblockedUpToAFault(S)
+    /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsFaulty :
+        /\ (a \in appearsMonitoredBy(b) /\ location[a] # location[b] => b \in S)
+            \* NEW: Actors that monitor remote actors are not garbage
+
+AppearsPotentiallyUnblockedUpToAFault == 
+    CHOOSE S \in SUBSET pdom(snapshots) \ AppearsFaulty : appearsPotentiallyUnblockedUpToAFault(S)
+AppearsQuiescentUpToAFault == 
+    pdom(snapshots) \ AppearsPotentiallyUnblockedUpToAFault
+
+AppearsPotentiallyUnblocked == 
+    CHOOSE S \in SUBSET pdom(snapshots) \ AppearsFaulty : appearsPotentiallyUnblocked(S)
+AppearsQuiescent == 
+    pdom(snapshots) \ AppearsPotentiallyUnblocked
+
+-----------------------------------------------------------------------------
+(* SOUNDNESS AND COMPLETENESS PROPERTIES *)
+
+SoundnessUpToAFault == 
+    AppearsQuiescentUpToAFault \subseteq NonExiledActors => 
+    AppearsQuiescentUpToAFault \subseteq Quiescent
+
+Soundness == AppearsQuiescent \subseteq Quiescent
+
 Completeness == M!Completeness
 
 ====

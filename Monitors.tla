@@ -59,15 +59,17 @@ Spawn(a,b) ==
     /\ UNCHANGED <<snapshots,msgs>>
 
 Crash(a) ==
-    /\ actors' = [actors EXCEPT ![a].status = "crashed"]
-    /\ UNCHANGED <<msgs,snapshots>>
+    /\ actors' = [actors EXCEPT ![a].status = "crashed"]      \* Mark the actor as crashed.
+    /\ msgs'   = removeWhere(msgs, LAMBDA m: m \in msgsTo(a)) \* Messages to crashed actors are dropped.
+    /\ UNCHANGED <<snapshots>>
 
 Monitor(a,b) ==
-    /\ actors' = [actors EXCEPT ![a].monitored = @ \union {b}]
+    /\ actors' = [actors EXCEPT ![a].monitored = @ \union {b}] \* Add b to the monitored set.
     /\ UNCHANGED <<msgs,snapshots>>
 
 Notify(a,b) ==
-    /\ actors' = [actors EXCEPT ![a].status = "busy", ![a].monitored = @ \ {b}]
+    /\ actors' = [actors EXCEPT  \* Mark the monitor as busy and remove b from the monitored set.
+                    ![a].status = "busy", ![a].monitored = @ \ {b}]
     /\ UNCHANGED <<msgs,snapshots>>
 
 Register(a) ==
@@ -86,8 +88,9 @@ Next ==
     \/ \E a \in BusyActors: Idle(a)
     \/ \E a \in BusyActors: \E b \in FreshActorName: Spawn(a,b)
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
-    \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
+    \/ \E a \in BusyActors: \E b \in acqs(a) \ CrashedActors: \E refs \in SUBSET acqs(a): 
         Send(a,b,[target |-> b, refs |-> refs])
+        \* NEW: Messages sent to crashed actors have no effect, so we disallow them.
     \/ \E a \in IdleActors: \E m \in msgsTo(a): Receive(a,m)
     \/ \E a \in IdleActors \union BusyActors \union CrashedActors : Snapshot(a)
         \* NEW: Crashed actors can now take snapshots.
@@ -119,6 +122,8 @@ Quiescent == pdom(actors) \ PotentiallyUnblocked
    busy by receiving signals from crashed actors or messages from external actors. *)
 OldSoundness == D!AppearsQuiescent \subseteq Quiescent
 
+AppearsUnblocked == D!AppearsUnblocked
+apparentIAcqs(b) == D!apparentIAcqs(b)
 appearsMonitoredBy(a) == snapshots[a].monitored
 AppearsReceptionist == { a \in pdom(snapshots) : snapshots[a].isReceptionist }
 AppearsCrashed == { a \in pdom(snapshots) : snapshots[a].status = "crashed" }
@@ -133,9 +138,9 @@ have not taken a snapshot, then A should be marked as potentially unblocked for 
 AppearsPotentiallyUnblocked == 
     CHOOSE S \in SUBSET pdom(snapshots) :
     /\ pdom(snapshots) \ AppearsClosed \subseteq S
-    /\ (AppearsReceptionist \union D!AppearsUnblocked) \ AppearsCrashed \subseteq S
+    /\ (AppearsReceptionist \union AppearsUnblocked) \ AppearsCrashed \subseteq S
     /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsCrashed :
-        /\ (a \in S \intersect D!apparentIAcqs(b) => b \in S)
+        /\ (a \in S \intersect apparentIAcqs(b) => b \in S)
         /\ (a \in (S \union AppearsCrashed) \intersect appearsMonitoredBy(b) => b \in S)
 
 AppearsQuiescent == pdom(snapshots) \ AppearsPotentiallyUnblocked
