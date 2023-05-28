@@ -156,12 +156,12 @@ appearsPotentiallyUnblocked(S) ==
 AppearsPotentiallyUnblockedUpToAFault == 
     CHOOSE S \in SUBSET pdom(snapshots) \ AppearsFaulty : appearsPotentiallyUnblockedUpToAFault(S)
 AppearsQuiescentUpToAFault == 
-    pdom(snapshots) \ AppearsPotentiallyUnblockedUpToAFault
+    (pdom(snapshots) \ ExiledActors) \ AppearsPotentiallyUnblockedUpToAFault
 
 AppearsPotentiallyUnblocked == 
     CHOOSE S \in SUBSET pdom(snapshots) \ AppearsFaulty : appearsPotentiallyUnblocked(S)
 AppearsQuiescent == 
-    pdom(snapshots) \ AppearsPotentiallyUnblocked
+    (pdom(snapshots) \ ExiledActors) \ AppearsPotentiallyUnblocked
 
 -----------------------------------------------------------------------------
 (* SOUNDNESS AND COMPLETENESS PROPERTIES *)
