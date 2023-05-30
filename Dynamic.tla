@@ -147,6 +147,12 @@ Soundness == AppearsQuiescent \subseteq Quiescent
 
 -----------------------------------------------------------------------------
 
+(* A snapshot from actor `a' is relevant to actor `b' if `a' ever had a 
+reference to `b'. *)
+Relevant(a, b) ==
+    \/ actors[a].active[b] > 0
+    \/ actors[a].deactivated[b] > 0
+
 (* A snapshot from actor `a' is recent enough for actor `b' if its send count,
    deactivated count, and created count regarding `b' are all up to date.
  *)
@@ -168,7 +174,7 @@ SnapshotUpToDate(a) == actors[a] = snapshots[a]
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
     /\ (~SnapshotUpToDate(a) => a \in S)
-    /\ (~RecentEnough(a,b) => b \in S)
+    /\ (Relevant(a,b) /\ ~RecentEnough(a,b) => b \in S)
     /\ (a \in S /\ a \in piacqs(b) => b \in S)
 
 SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
@@ -177,5 +183,15 @@ SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
    all its historical inverse acquaintances are recent enough and 
  *)
 Completeness == (Quiescent \intersect SnapshotsSufficient) \subseteq AppearsQuiescent
+
+-----------------------------------------------------------------------------
+(* OTHER PROPERTIES: *)
+
+SufficientIsTight == AppearsQuiescent \subseteq SnapshotsSufficient
+
+-----------------------------------------------------------------------------
+(* TEST CASES: These invariants do not hold because garbage can be detected. *)
+
+GarbageIsDetected == AppearsQuiescent = {}
 
 ====
