@@ -133,10 +133,11 @@ Soundness == AppearsQuiescent \subseteq Quiescent
 
 -----------------------------------------------------------------------------
 
+Relevant(a, b) == D!Relevant(a, b) \/ a \in monitoredBy(b)
 SnapshotUpToDate(a) == D!SnapshotUpToDate(a)
 RecentEnough(a, b) ==
-    /\ D!RecentEnough(a,b) 
-    /\ actors[a].status = "crashed" => snapshots[a].status = "crashed"
+    \/ D!RecentEnough(a,b) 
+    \/ (a \in pdom(snapshots) /\ actors[a].status = "crashed" /\ snapshots[a].status = "crashed")
 
 (* A set of snapshots is sufficient for b if:
    1. b's snapshot is up to date;
@@ -144,11 +145,14 @@ RecentEnough(a, b) ==
    3. The snapshots are sufficient for all of b's potential inverse acquaintances.
  *)
 SnapshotsInsufficient == 
-    CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
-    /\ (~SnapshotUpToDate(a) => a \in S)
-    /\ (~RecentEnough(a,b) => b \in S)
-    /\ (a \in S /\ a \in piacqs(b) => b \in S)
-    /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
+    CHOOSE S \in SUBSET pdom(actors):
+    /\ \A a \in pdom(actors): 
+        /\ ~SnapshotUpToDate(a) => a \in S
+        \* For crashed actors, a most recent snapshot suffices.
+    /\ \A a \in pdom(actors): \A b \in pdom(actors) \ CrashedActors:
+        /\ (Relevant(a,b) /\ ~RecentEnough(a,b) => b \in S)
+        /\ (a \in S /\ a \in piacqs(b) => b \in S)
+        /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
 
 SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
 
@@ -156,5 +160,15 @@ SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
    all its historical inverse acquaintances are recent enough and 
  *)
 Completeness == (Quiescent \intersect SnapshotsSufficient) \subseteq AppearsQuiescent
+
+-----------------------------------------------------------------------------
+(* OTHER PROPERTIES: *)
+
+SufficientIsTight == AppearsQuiescent \subseteq SnapshotsSufficient
+
+-----------------------------------------------------------------------------
+(* TEST CASES: These invariants do not hold because garbage can be detected. *)
+
+GarbageIsDetected == AppearsQuiescent = {}
 
 ====
