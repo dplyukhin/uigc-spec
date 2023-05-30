@@ -29,34 +29,15 @@ InitialActorState ==
 
 monitoredBy(b) == actors[b].monitored
  
-Init ==   
-    LET actor == CHOOSE a \in ActorName: TRUE 
-        state == [ InitialActorState EXCEPT 
-                   !.active  = @ ++ (actor :> 1),
-                   !.created = @ ++ (<<actor, actor>> :> 1),
-                   !.isReceptionist = TRUE
-                 ]
-    IN
-    /\ msgs = EmptyBag
-    /\ actors = [a \in ActorName |-> IF a = actor THEN state ELSE null ]
-    /\ snapshots = [a \in ActorName |-> null]
+InitialConfiguration(actor, actorState) ==   
+    D!InitialConfiguration(actor, [actorState EXCEPT !.isReceptionist = TRUE])
 
-Idle(a)         == D!Idle(a)
-Deactivate(a,b) == D!Deactivate(a,b)
-Send(a,b,m)     == D!Send(a,b,m)
-Receive(a,m)    == D!Receive(a,m)
-Snapshot(a)     == D!Snapshot(a)
-
-Spawn(a,b) == 
-    /\ actors' = [actors EXCEPT 
-        ![a].active[b] = 1,                                 \* Parent has a reference to the child.
-        ![b] = [ 
-            InitialActorState EXCEPT 
-            !.active  = @ ++ (b :> 1),                      \* Child has a reference to itself.
-            !.created = @ ++ (<<b,b>> :> 1 @@ <<a,b>> :> 1) \* Child knows about both references.
-        ]
-        ]
-    /\ UNCHANGED <<snapshots,msgs>>
+Idle(a)          == D!Idle(a)
+Deactivate(a,b)  == D!Deactivate(a,b)
+Send(a,b,m)      == D!Send(a,b,m)
+Receive(a,m)     == D!Receive(a,m)
+Snapshot(a)      == D!Snapshot(a)
+Spawn(a,b,state) == D!Spawn(a,b,state)
 
 Crash(a) ==
     /\ actors' = [actors EXCEPT ![a].status = "crashed"]      \* Mark the actor as crashed.
@@ -84,9 +65,12 @@ Unregister(a) ==
     /\ actors' = [actors EXCEPT ![a].isReceptionist = FALSE]
     /\ UNCHANGED <<msgs,snapshots>>
 
+Init == 
+    InitialConfiguration(CHOOSE a \in ActorName: TRUE, InitialActorState)
+
 Next == 
     \/ \E a \in BusyActors: Idle(a)
-    \/ \E a \in BusyActors: \E b \in FreshActorName: Spawn(a,b)
+    \/ \E a \in BusyActors: \E b \in FreshActorName: Spawn(a,b,InitialActorState)
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
     \/ \E a \in BusyActors: \E b \in acqs(a) \ CrashedActors: \E refs \in SUBSET acqs(a): 
         Send(a,b,[target |-> b, refs |-> refs])

@@ -45,9 +45,8 @@ InitialActorState == [
         
 (* In the initial configuration, there is one busy actor with a reference
    to itself. *)
-Init ==   
-    LET actor == CHOOSE a \in ActorName: TRUE 
-        state == [ InitialActorState EXCEPT 
+InitialConfiguration(actor, actorState) ==   
+    LET state == [ actorState EXCEPT 
                    !.active  = @ ++ (actor :> 1),
                    !.created = @ ++ (<<actor, actor>> :> 1)
                  ]
@@ -62,11 +61,11 @@ Idle(a) ==
     /\ actors' = [actors EXCEPT ![a].status = "idle"]
     /\ UNCHANGED <<msgs,snapshots>>
 
-Spawn(a,b) == 
+Spawn(a,b,actorState) == 
     /\ actors' = [actors EXCEPT 
         ![a].active[b] = 1,                                 \* Parent has a reference to the child.
         ![b] = [ 
-            InitialActorState EXCEPT 
+            actorState EXCEPT 
             !.active  = @ ++ (b :> 1),                      \* Child has a reference to itself.
             !.created = @ ++ (<<b,b>> :> 1 @@ <<a,b>> :> 1) \* Child knows about both references.
         ]
@@ -103,9 +102,12 @@ Snapshot(a) ==
     /\ snapshots' = [snapshots EXCEPT ![a] = actors[a]]
     /\ UNCHANGED <<msgs,actors>>
 
+Init == 
+    InitialConfiguration(CHOOSE a \in ActorName: TRUE, InitialActorState)
+
 Next == 
     \/ \E a \in BusyActors: Idle(a)
-    \/ \E a \in BusyActors: \E b \in FreshActorName: Spawn(a,b)
+    \/ \E a \in BusyActors: \E b \in FreshActorName: Spawn(a,b,InitialActorState)
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
     \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
         Send(a,b,[target |-> b, refs |-> refs])

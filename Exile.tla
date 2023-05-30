@@ -9,12 +9,29 @@ VARIABLE nodeStatus, oracle, location
 (* Import operators from the Monitors model. *)
 M == INSTANCE Monitors
 
+ActorState == [
+    status      : {"busy", "idle", "crashed", "exiled"}, \* NEW: Actors may become "exiled".
+    recvCount   : Nat,
+    sendCount   : [ActorName -> Nat],
+    active      : [ActorName -> Nat],
+    deactivated : [ActorName -> Nat],
+    created     : [ActorName \X ActorName -> Nat],
+    monitored   : SUBSET ActorName,
+    exiled      : SUBSET NodeID, \* NEW: The set of nodes that this actor has exiled.
+    isReceptionist : BOOLEAN
+]
+
+InitialActorState ==
+    M!InitialActorState @@ [
+        exiled |-> {}
+    ]
+
 (* In order to model exile, messages are now tagged with the ID of the sender node. *)
 Message == [origin: NodeID, target: ActorName, refs : SUBSET ActorName] 
 
 TypeOK == 
-  /\ actors         \in [ActorName -> M!ActorState \cup {null}]
-  /\ snapshots      \in [ActorName -> M!ActorState \cup {null}]
+  /\ actors         \in [ActorName -> ActorState \cup {null}]
+  /\ snapshots      \in [ActorName -> ActorState \cup {null}]
   /\ BagToSet(msgs) \subseteq Message
   /\ nodeStatus \in [NodeID -> {"up", "down"}] \* Each node is either up or down.
   /\ DOMAIN oracle = NodeID                    \* Each node has an oracle tracking messages.
@@ -24,12 +41,10 @@ TypeOK ==
   /\ location   \in [ActorName -> NodeID \cup {null}] \* Each actor has a location.
   /\ \A a \in ActorName : actors[a] # null => location[a] # null
 
-Init == M!Init /\
-    LET actor == CHOOSE a \in ActorName: actors[a] # null \* The initial actor.
-        node  == CHOOSE node \in NodeID: TRUE IN          \* The initial actor's location.
-    /\ nodeStatus = [n \in NodeID |-> "up"]               \* Every node is initially "up".
-    /\ oracle     = [n \in NodeID |->                     \* No messages have been sent.
-                        [delivered |-> EmptyBag, dropped |-> EmptyBag]]
+InitialConfiguration(actor, node, actorState) == 
+    /\ M!InitialConfiguration(actor, actorState)
+    /\ nodeStatus = [n \in NodeID |-> "up"]
+    /\ oracle     = [n \in NodeID |-> [delivered |-> EmptyBag, dropped |-> EmptyBag]]
     /\ location   = [a \in ActorName |-> IF a = actor THEN node ELSE null]
 
 -----------------------------------------------------------------------------
@@ -42,7 +57,18 @@ NonExiledNodes  == { n \in NodeID : nodeStatus[n] = "up" }
 NonExiledActors == pdom(actors) \ ExiledActors
 NonFaultyActors == pdom(actors) \ FaultyActors
 
-droppedMsgsTo(a) == selectWhere(oracle[location[a]].dropped, LAMBDA m: m.target = a)
+(* The bag of messages that have been sent to `a' and dropped. *)
+droppedMsgsTo(a) == 
+    selectWhere(oracle[location[a]].dropped, LAMBDA m: m.target = a)
+(* The bag of messages that have been delivered to `a' from `nodes'. *)
+deliveredMsgsTo(a, nodes) == 
+    selectWhere(oracle[location[a]].delivered, LAMBDA m: m.target = a /\ m.origin \in nodes)
+(* The bag of actors on `node' that have received references to `a' from exiledNodes.  
+Each instance of an actor in the bag corresponds to one reference to `a'.*)
+deliveredRefs(a, node, exiledNodes) == 
+    BagOfAll(LAMBDA m: m.target,
+        selectWhere(oracle[node].delivered, 
+            LAMBDA m: a \in m.refs /\ m.origin \in exiledNodes))
 
 -----------------------------------------------------------------------------
 (* TRANSITION RULES *)
@@ -63,7 +89,8 @@ Receive(a,m) == M!Receive(a,m) /\
     /\ oracle' = [oracle EXCEPT ![node].delivered = put(@, m)]
     /\ UNCHANGED <<nodeStatus,location>>
 
-Spawn(a,b,node) == M!Spawn(a,b) /\
+Spawn(a,b,state,node) == 
+    /\ M!Spawn(a, b, state)
     /\ location' = [location EXCEPT ![b] = node]
     /\ UNCHANGED <<nodeStatus,oracle>>
 
@@ -80,8 +107,12 @@ Exile(nodes) ==
                  ]
     /\ msgs' = removeWhere(msgs, LAMBDA msg: 
                 msg.origin \in nodes /\ location[msg.target] \in nodes)
-    /\ nodeStatus' = [node \in NodeID |-> IF node \in nodes THEN "down" ELSE nodeStatus[node]]
-    /\ UNCHANGED <<snapshots,location,oracle>>
+    /\ nodeStatus' = [n \in NodeID |-> IF n \in nodes THEN "down" ELSE nodeStatus[n]]
+    /\ oracle'     = [n \in NodeID |-> IF n \in nodes
+                                       THEN [oracle[n] EXCEPT !.dropped = EmptyBag] 
+                                        \* Dropped messages no longer need to be recorded after exile.
+                                       ELSE oracle[n]]
+    /\ UNCHANGED <<snapshots,location>>
 
 DropOracle(a, droppedMsgs) ==
     LET node == location[a]
@@ -97,30 +128,28 @@ DropOracle(a, droppedMsgs) ==
                  \* The oracle now considers these messages to be "delivered".
     /\ UNCHANGED <<msgs,snapshots,location,nodeStatus>>
 
-(*
 ExileOracle(a, exiledNodes) ==
-    LET node == location[a]
-        otherNodes == NodeID \ exiledNodes
-        delivered == selectWhere(oracle[node].delivered, LAMBDA m: m.target = a /\ m.origin \in exiledNodes)
+    LET remainingNodes == NodeID \ (exiledNodes \union actors[a].exiled)
+            \* The set of nodes that have not been exiled yet.
+        delivered == deliveredMsgsTo(a, exiledNodes)
             \* The set of all messages delivered to `a', sent by actors in exiledNodes.
-        created == ???
-            \* The number of references pointing to `a', created by actors in exiledNodes
-            \* for actors not in exiledNodes.
-    \* TODO We can't remove these messages from the delivered set, because other actors will
-    \* need to know about the references inside that set!
+        created == BagUnion({ deliveredRefs(a, node, exiledNodes) : node \in remainingNodes })
+            \* The bag of references pointing to `a', created by actors in exiledNodes
+            \* for actors on remainingNodes.
     IN 
     /\ actors' = [ actors EXCEPT 
-                   ![a].recvCount = @ - BagCardinality(delivered)
+                   ![a].recvCount = @ - BagCardinality(delivered),
+                   ![a].created = @ ++ BagOfAll(LAMBDA b: <<b,a>>, created),
+                   ![a].exiled = @ \union exiledNodes
                  ]
-    /\ oracle' = [ oracle EXCEPT
-                    ![node].dropped = removeWhere(@, LAMBDA m: m.target = a /\ m.origin \in exiledNodes)
-                        \* Messages from exiledNodes can no longer be marked as dropped.
-                 ]
-    /\ UNCHANGED <<msgs,snapshots,location,nodeStatus>>
-*)
+    /\ UNCHANGED <<msgs,snapshots,location,nodeStatus,oracle>>
+
+Init == 
+    InitialConfiguration(CHOOSE a \in ActorName: TRUE, CHOOSE n \in NodeID: TRUE, InitialActorState)
+
 Next ==
     \/ \E a \in BusyActors: Idle(a)
-    \/ \E a \in BusyActors: \E b \in FreshActorName: \E n \in NonExiledNodes: Spawn(a,b,n)
+    \/ \E a \in BusyActors: \E b \in FreshActorName: \E n \in NonExiledNodes: Spawn(a,b,InitialActorState,n)
         \* NEW: Actors are spawned onto a specific (non-exiled) node.
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
     \/ \E a \in BusyActors: \E b \in acqs(a) \ FaultyActors: \E refs \in SUBSET acqs(a): 
@@ -137,11 +166,13 @@ Next ==
     \/ \E a \in IdleActors \intersect Receptionists: Wakeup(a)
     \/ \E a \in BusyActors \intersect Receptionists: Unregister(a)
     \/ \E m \in BagToSet(msgs): Drop(m)
-    \*\/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
+    \/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
     \/ \E a \in NonExiledActors: 
        \E droppedMsgs \in SubBag(droppedMsgsTo(a)): 
        DropOracle(a,droppedMsgs)
-    \*\/ \E a \in NonExiledActors: \E nodes \in SUBSET ExiledNodes: ExileOracle(a, nodes)
+    \/ \E a \in NonExiledActors: 
+       \E exiledNodes \in SUBSET (ExiledNodes \ actors[a].exiled): 
+       ExileOracle(a, exiledNodes)
 
 -----------------------------------------------------------------------------
 (* ACTUAL GARBAGE *)
