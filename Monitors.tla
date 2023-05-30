@@ -149,6 +149,7 @@ Soundness == AppearsQuiescent \subseteq Quiescent
 
 -----------------------------------------------------------------------------
 
+SnapshotUpToDate(a) == D!SnapshotUpToDate(a)
 RecentEnough(a, b) ==
     /\ D!RecentEnough(a,b) 
     /\ actors[a].status = "crashed" => snapshots[a].status = "crashed"
@@ -160,7 +161,7 @@ RecentEnough(a, b) ==
  *)
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
-    /\ (~D!SnapshotUpToDate(a) => a \in S)
+    /\ (~SnapshotUpToDate(a) => a \in S)
     /\ (~RecentEnough(a,b) => b \in S)
     /\ (a \in S /\ a \in piacqs(b) => b \in S)
     /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
