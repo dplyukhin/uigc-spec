@@ -81,6 +81,41 @@ Exile(nodes) ==
     /\ nodeStatus' = [node \in NodeID |-> IF node \in nodes THEN "down" ELSE nodeStatus[node]]
     /\ UNCHANGED <<snapshots,location,oracle>>
 
+DropOracle(a, droppedMsgs) ==
+    LET node == location[a]
+        droppedCount == BagCardinality(droppedMsgs)
+        droppedRefs  == BagUnion(BagOfAll(LAMBDA msg: SetToBag(msg.refs), droppedMsgs)) IN
+    /\ actors' = [ actors EXCEPT 
+                   ![a].recvCount = @ + droppedCount,
+                   ![a].deactivated = @ ++ droppedRefs
+                 ]
+    /\ oracle' = [oracle EXCEPT 
+                    ![node].delivered = @ (+) droppedMsgs,
+                    ![node].dropped   = removeAll(@, droppedMsgs)]
+                 \* The oracle now considers these messages to be "delivered".
+    /\ UNCHANGED <<msgs,snapshots,location,nodeStatus>>
+
+(*
+ExileOracle(a, exiledNodes) ==
+    LET node == location[a]
+        otherNodes == NodeID \ exiledNodes
+        delivered == selectWhere(oracle[node].delivered, LAMBDA m: m.target = a /\ m.origin \in exiledNodes)
+            \* The set of all messages delivered to `a', sent by actors in exiledNodes.
+        created == ???
+            \* The number of references pointing to `a', created by actors in exiledNodes
+            \* for actors not in exiledNodes.
+    \* TODO We can't remove these messages from the delivered set, because other actors will
+    \* need to know about the references inside that set!
+    IN 
+    /\ actors' = [ actors EXCEPT 
+                   ![a].recvCount = @ - BagCardinality(delivered)
+                 ]
+    /\ oracle' = [ oracle EXCEPT
+                    ![node].dropped = removeWhere(@, LAMBDA m: m.target = a /\ m.origin \in exiledNodes)
+                        \* Messages from exiledNodes can no longer be marked as dropped.
+                 ]
+    /\ UNCHANGED <<msgs,snapshots,location,nodeStatus>>
+*)
 Next ==
     \/ \E a \in BusyActors: Idle(a)
     \/ \E a \in BusyActors: \E b \in FreshActorName: \E n \in NonExiledNodes: Spawn(a,b,n)
@@ -100,7 +135,9 @@ Next ==
     \/ \E a \in IdleActors \intersect Receptionists: Wakeup(a)
     \/ \E a \in BusyActors \intersect Receptionists: Unregister(a)
     \/ \E m \in BagToSet(msgs): Drop(m)
-    \/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
+    \*\/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
+    \/ \E a \in NonExiledActors: \E droppedMsgs \in SubBag(oracle[location[a]].dropped): DropOracle(a,droppedMsgs)
+    \*\/ \E a \in NonExiledActors: \E nodes \in SUBSET ExiledNodes: ExileOracle(a, nodes)
 
 -----------------------------------------------------------------------------
 (* ACTUAL GARBAGE *)
@@ -177,5 +214,6 @@ SoundnessUpToAFault ==
 Soundness == AppearsQuiescent \subseteq Quiescent
 
 Completeness == M!Completeness
+(* TODO: Monitor completeness does not account for dropped messages. *)
 
 ====

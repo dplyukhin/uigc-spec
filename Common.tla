@@ -35,6 +35,9 @@ removeAll(bag, S) ==
 removeWhere(bag, F(_)) ==                    \* Removes all elements satisfying F(_).
     LET S == { x \in DOMAIN bag : F(x) } IN 
     [x \in DOMAIN bag \ S |-> bag[x]]
+selectWhere(bag, F(_)) ==                    \* Finds all elements satisfying F(_).
+    LET S == { x \in DOMAIN bag : F(x) } IN 
+    [x \in DOMAIN S |-> bag[x]]
 
 (* Computes the sum `^$\sum_{x \in dom(f)} f(x)$^'. *)
 RECURSIVE sumOver(_, _)
