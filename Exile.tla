@@ -42,6 +42,8 @@ NonExiledNodes  == { n \in NodeID : nodeStatus[n] = "up" }
 NonExiledActors == pdom(actors) \ ExiledActors
 NonFaultyActors == pdom(actors) \ FaultyActors
 
+droppedMsgsTo(a) == selectWhere(oracle[location[a]].dropped, LAMBDA m: m.target = a)
+
 -----------------------------------------------------------------------------
 (* TRANSITION RULES *)
 
@@ -137,7 +139,7 @@ Next ==
     \/ \E m \in BagToSet(msgs): Drop(m)
     \*\/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
     \/ \E a \in NonExiledActors: 
-       \E droppedMsgs \in SubBag(selectWhere(oracle[location[a]].dropped, LAMBDA m: m.target = a)): 
+       \E droppedMsgs \in SubBag(droppedMsgsTo(a)): 
        DropOracle(a,droppedMsgs)
     \*\/ \E a \in NonExiledActors: \E nodes \in SUBSET ExiledNodes: ExileOracle(a, nodes)
 
@@ -215,15 +217,15 @@ SoundnessUpToAFault ==
 
 Soundness == AppearsQuiescent \subseteq Quiescent
 
-SnapshotUpToDate(a) == 
-    /\ actors[a] = snapshots[a]
-    /\ selectWhere(oracle[location[a]].dropped, LAMBDA m: m.target = a) = EmptyBag
-        \* The actor has been notified about all dropped messages.
+(* Snapshots are now up to date and recent enough only once the oracle has 
+notified the actor about all dropped messages. *)
+SnapshotUpToDate(a) == M!SnapshotUpToDate(a) /\ droppedMsgsTo(a) = EmptyBag 
+RecentEnough(a,b)   == M!RecentEnough(a,b)   /\ droppedMsgsTo(a) = EmptyBag
 
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
-    /\ (~SnapshotUpToDate(a) => a \in S) \* NEW: The definition of "up to date" has been expanded.
-    /\ (~M!RecentEnough(a,b) => b \in S)
+    /\ (~SnapshotUpToDate(a) => a \in S) \* NEW: Dropped messages must be delivered.
+    /\ (~RecentEnough(a,b) => b \in S)   \* NEW: Dropped messages must be delivered.
     /\ (a \in S /\ a \in piacqs(b) => b \in S)
     /\ (a \in S /\ a \in M!monitoredBy(b) => b \in S)
 
