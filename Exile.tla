@@ -136,7 +136,9 @@ Next ==
     \/ \E a \in BusyActors \intersect Receptionists: Unregister(a)
     \/ \E m \in BagToSet(msgs): Drop(m)
     \*\/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
-    \/ \E a \in NonExiledActors: \E droppedMsgs \in SubBag(oracle[location[a]].dropped): DropOracle(a,droppedMsgs)
+    \/ \E a \in NonExiledActors: 
+       \E droppedMsgs \in SubBag(selectWhere(oracle[location[a]].dropped, LAMBDA m: m.target = a)): 
+       DropOracle(a,droppedMsgs)
     \*\/ \E a \in NonExiledActors: \E nodes \in SUBSET ExiledNodes: ExileOracle(a, nodes)
 
 -----------------------------------------------------------------------------
