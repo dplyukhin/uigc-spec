@@ -250,8 +250,14 @@ Soundness == AppearsQuiescent \subseteq Quiescent
 
 (* Snapshots are now up to date and recent enough only once the oracle has 
 notified the actor about all dropped messages. *)
-SnapshotUpToDate(a) == M!SnapshotUpToDate(a) /\ droppedMsgsTo(a) = EmptyBag 
-RecentEnough(a,b)   == M!RecentEnough(a,b)   /\ droppedMsgsTo(a) = EmptyBag
+SnapshotUpToDate(a) == 
+    /\ M!SnapshotUpToDate(a) 
+    /\ droppedMsgsTo(a) = EmptyBag 
+    /\ ExiledNodes \subseteq actors[a].exiled
+RecentEnough(a,b) == 
+    /\ M!RecentEnough(a,b) 
+    /\ droppedMsgsTo(a) = EmptyBag
+    /\ ExiledNodes \subseteq actors[a].exiled
 
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
