@@ -56,12 +56,6 @@ Register(a)     == M!Register(a)     /\ UNCHANGED <<location,nodeStatus,oracle>>
 Wakeup(a)       == M!Wakeup(a)       /\ UNCHANGED <<location,nodeStatus,oracle>>
 Unregister(a)   == M!Unregister(a)   /\ UNCHANGED <<location,nodeStatus,oracle>>
 
-Drop(m) == 
-    LET node == location[m.target] IN
-    /\ msgs' = remove(msgs, m)
-    /\ oracle' = [oracle EXCEPT ![node].dropped = put(@, m)]
-    /\ UNCHANGED <<actors,snapshots,nodeStatus,location>>
-
 Receive(a,m) == M!Receive(a,m) /\
     LET node == location[a] IN
     /\ oracle' = [oracle EXCEPT ![node].delivered = put(@, m)]
@@ -70,6 +64,12 @@ Receive(a,m) == M!Receive(a,m) /\
 Spawn(a,b,node) == M!Spawn(a,b) /\
     /\ location' = [location EXCEPT ![b] = node]
     /\ UNCHANGED <<nodeStatus,oracle>>
+
+Drop(m) == 
+    LET node == location[m.target] IN
+    /\ msgs' = remove(msgs, m)
+    /\ oracle' = [oracle EXCEPT ![node].dropped = put(@, m)]
+    /\ UNCHANGED <<actors,snapshots,nodeStatus,location>>
 
 Exile(nodes) ==
     /\ actors' = [a \in ActorName |-> 
@@ -84,14 +84,14 @@ Exile(nodes) ==
 DropOracle(a, droppedMsgs) ==
     LET node == location[a]
         droppedCount == BagCardinality(droppedMsgs)
-        droppedRefs  == BagUnion(BagOfAll(LAMBDA msg: SetToBag(msg.refs), droppedMsgs)) IN
+        droppedRefs  == BagUnionOfSets(BagOfAll(LAMBDA msg: msg.refs, droppedMsgs)) IN
     /\ actors' = [ actors EXCEPT 
                    ![a].recvCount = @ + droppedCount,
                    ![a].deactivated = @ ++ droppedRefs
                  ]
     /\ oracle' = [oracle EXCEPT 
                     ![node].delivered = @ (+) droppedMsgs,
-                    ![node].dropped   = removeAll(@, droppedMsgs)]
+                    ![node].dropped   = @ (-) droppedMsgs]
                  \* The oracle now considers these messages to be "delivered".
     /\ UNCHANGED <<msgs,snapshots,location,nodeStatus>>
 
@@ -213,7 +213,20 @@ SoundnessUpToAFault ==
 
 Soundness == AppearsQuiescent \subseteq Quiescent
 
-Completeness == M!Completeness
-(* TODO: Monitor completeness does not account for dropped messages. *)
+SnapshotUpToDate(a) == 
+    /\ actors[a] = snapshots[a]
+    /\ selectWhere(oracle[location[a]].dropped, LAMBDA m: m.target = a) = EmptyBag
+        \* The actor has been notified about all dropped messages.
+
+SnapshotsInsufficient == 
+    CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
+    /\ (~SnapshotUpToDate(a) => a \in S) \* NEW: The definition of "up to date" has been expanded.
+    /\ (~M!RecentEnough(a,b) => b \in S)
+    /\ (a \in S /\ a \in piacqs(b) => b \in S)
+    /\ (a \in S /\ a \in M!monitoredBy(b) => b \in S)
+
+SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
+
+Completeness == (M!Quiescent \intersect SnapshotsSufficient) \subseteq M!AppearsQuiescent
 
 ====

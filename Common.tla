@@ -37,7 +37,12 @@ removeWhere(bag, F(_)) ==                    \* Removes all elements satisfying 
     [x \in DOMAIN bag \ S |-> bag[x]]
 selectWhere(bag, F(_)) ==                    \* Finds all elements satisfying F(_).
     LET S == { x \in DOMAIN bag : F(x) } IN 
-    [x \in DOMAIN S |-> bag[x]]
+    [x \in S |-> bag[x]]
+BagUnionOfSets(bag) ==
+    (* Assuming `bag' is a bag of sets, this will produce a bag with an
+    instance of `x' for each set in `bag' that contains `x'. *)
+    LET Count(x) == BagCardinality(selectWhere(bag, LAMBDA s: x \in s)) IN 
+    [x \in UNION DOMAIN bag |-> Count(x)]
 
 (* Computes the sum `^$\sum_{x \in dom(f)} f(x)$^'. *)
 RECURSIVE sumOver(_, _)
