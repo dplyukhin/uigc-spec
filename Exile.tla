@@ -268,6 +268,7 @@ SnapshotsInsufficient ==
 
 SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
 
-Completeness == (M!Quiescent \intersect SnapshotsSufficient) \subseteq M!AppearsQuiescent
+Completeness == (Quiescent \intersect SnapshotsSufficient) \subseteq AppearsQuiescent
+
 
 ====
