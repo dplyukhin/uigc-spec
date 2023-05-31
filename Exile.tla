@@ -264,11 +264,15 @@ RecentEnough(a,b) == M!RecentEnough(a,b)
 FinishedExile(a,b) == location[a] \in actors[b].exiled
 
 SnapshotsInsufficient == 
-    CHOOSE S \in SUBSET NonExiledActors : \A a \in NonExiledActors : \* NEW: Non-exield actors
-    /\ (~SnapshotUpToDate(a) => a \in S)
-    /\ \A b \in NonFaultyActors :
-        /\ droppedMsgsTo(b) # EmptyBag => b \in S \* NEW
-        /\ (a \in ExiledActors \intersect piacqs(b) /\ ~FinishedExile(a,b) => b \in S) \* NEW
+    CHOOSE S \in SUBSET NonExiledActors : 
+    /\ \A a \in NonExiledActors : (~SnapshotUpToDate(a) => a \in S)
+        \* NEW: Snapshots from exiled actors are always sufficient.
+    /\ \A a \in ExiledActors : \A b \in NonFaultyActors :
+        (a \in piacqs(b) /\ ~FinishedExile(a,b) => b \in S)
+        \* NEW: Exiled potential inverse acquaintances must be processed.
+    /\ \A a \in NonExiledActors : \A b \in NonFaultyActors :
+        /\ droppedMsgsTo(b) # EmptyBag => b \in S 
+        \* NEW: Dropped messages must be detected.
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in piacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
