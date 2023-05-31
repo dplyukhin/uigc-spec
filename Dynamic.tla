@@ -143,55 +143,52 @@ AppearsPotentiallyUnblocked ==
 
 AppearsQuiescent == pdom(snapshots) \ AppearsPotentiallyUnblocked
 
-Soundness == AppearsQuiescent \subseteq Quiescent
-
------------------------------------------------------------------------------
-
-(* A snapshot from actor `a' is relevant to actor `b' if `a' ever had a 
-reference to `b'. *)
-Relevant(a, b) ==
-    \/ actors[a].active[b] > 0
-    \/ actors[a].deactivated[b] > 0
-
-(* A snapshot from actor `a' is recent enough for actor `b' if its send count,
-   deactivated count, and created count regarding `b' are all up to date.
+(* An actor's snapshot is up to date if its state has not changed since the 
+   last snapshot. 
  *)
-RecentEnough(a, b) ==
-    /\ a \in pdom(snapshots)
-    /\ actors[a].active[b] = snapshots[a].active[b]
-    /\ actors[a].deactivated[b] = snapshots[a].deactivated[b]
-    /\ \A c \in ActorName : actors[a].created[b,c] = snapshots[a].created[b,c]
-    /\ \A c \in ActorName : actors[a].created[c,b] = snapshots[a].created[c,b]
-
-(* An actor's snapshot is up to date if its state has not changed since the last snapshot. *)
 SnapshotUpToDate(a) == actors[a] = snapshots[a]
 
-(* A set of snapshots is sufficient for b if:
-   1. b's snapshot is up to date;
-   2. The snapshots of all b's historical inverse acquaintances are recent enough for a;
-   3. The snapshots are sufficient for all of b's potential inverse acquaintances.
+(* A snapshot from a past inverse acquaintance is recent enough if that the
+   deactivated count in ths snapshot is up to date with the actual deactivated 
+   count.
+ *)
+PastIAcqsRecentEnough(b) == \A a \in pdom(actors):
+    actors[a].deactivated[b] > 0 =>
+    a \in pdom(snapshots) /\ actors[a].deactivated[b] = snapshots[a].deactivated[b]
+
+(* A set of snapshots is insufficient for b if:
+   1. b's snapshot is out of date;
+   2. b has a previous inverse acquaintance whose snapshot is not recent enough; or
+   3. b is potentially reachable by an actor for which the snapshots are insufficient.
  *)
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
     /\ (~SnapshotUpToDate(a) => a \in S)
-    /\ (Relevant(a,b) /\ ~RecentEnough(a,b) => b \in S)
+    /\ (~PastIAcqsRecentEnough(a) => a \in S)
     /\ (a \in S /\ a \in piacqs(b) => b \in S)
 
 SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
 
-(* If an actor is garbage and its snapshot is up to date and the snapshots of
-   all its historical inverse acquaintances are recent enough and 
+(* The specification captures the following properties:
+   1. Soundness: Every actor that appears quiescent is indeed quiescent.
+   2. Completeness: Every quiescent actor with a sufficient set of snapshots
+      will appear quiescent.
  *)
-Completeness == (Quiescent \intersect SnapshotsSufficient) \subseteq AppearsQuiescent
-
------------------------------------------------------------------------------
-(* OTHER PROPERTIES: *)
-
-SufficientIsTight == AppearsQuiescent \subseteq SnapshotsSufficient
+Spec == (Quiescent \intersect SnapshotsSufficient) = AppearsQuiescent
 
 -----------------------------------------------------------------------------
 (* TEST CASES: These invariants do not hold because garbage can be detected. *)
 
-GarbageIsDetected == AppearsQuiescent = {}
+(* This invariant fails, showing that the set of quiescent actors is nonempty. *)
+GarbageExists == ~(Quiescent = {})
+
+(* This invariant fails, showing that quiescence can be detected. *)
+GarbageIsDetected == ~(AppearsQuiescent = {})
+
+(* An actor `b' can appear quiescent when a past inverse acquaintance `a' is not
+quiescent. This is because `a' has deactivated all its references to `b'. *)
+DeactivatedGarbage ==
+  ~(\E a,b \in pdom(actors): a # b /\ a \notin Quiescent /\ b \in AppearsQuiescent /\ 
+    actors[a].active[b] = 0 /\ actors[a].deactivated[b] > 0)
 
 ====
