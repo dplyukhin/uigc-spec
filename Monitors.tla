@@ -143,8 +143,6 @@ Spec == (Quiescent \intersect SnapshotsSufficient) = AppearsQuiescent
 -----------------------------------------------------------------------------
 (* TEST CASES: These invariants do not hold because garbage can be detected. *)
 
-GarbageIsDetected == AppearsQuiescent = {}
-
 (* This invariant fails, showing that the set of quiescent actors is nonempty. *)
 GarbageExists == ~(Quiescent = {})
 
@@ -155,7 +153,7 @@ GarbageIsDetected == ~(AppearsQuiescent = {})
 (* This invariant fails, showing that quiescent actors can have crashed inverse
    acquaintances. *)
 CrashedGarbageIsDetected ==
-  ~(\E a,b \in pdom(actors): a # b /\ a \in Crashed /\ b \in AppearsQuiescent /\ 
+  ~(\E a,b \in pdom(actors): a # b /\ a \in CrashedActors /\ b \in AppearsQuiescent /\ 
     a \in iacqs(b))
 
 (* The previous soundness property no longer holds because actors can now become
