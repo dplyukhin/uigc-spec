@@ -152,7 +152,7 @@ Next ==
     \/ \E a \in BusyActors: \E b \in FreshActorName: \E n \in NonExiledNodes: Spawn(a,b,InitialActorState,n)
         \* NEW: Actors are spawned onto a specific (non-exiled) node.
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
-    \/ \E a \in BusyActors: \E b \in acqs(a) \ FaultyActors: \E refs \in SUBSET acqs(a): 
+    \/ \E a \in BusyActors: \E b \in acqs(a) \ ExiledActors: \E refs \in SUBSET acqs(a): 
         Send(a,b,[origin |-> location[a], target |-> b, refs |-> refs])
         \* NEW: Messages are tagged with node locations and cannot be sent to faulty actors.
     \/ \E a \in IdleActors: \E m \in msgsTo(a): Receive(a,m)
@@ -167,10 +167,10 @@ Next ==
     \/ \E a \in BusyActors \intersect Receptionists: Unregister(a)
     \/ \E m \in BagToSet(msgs): Drop(m)
     \/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
-    \/ \E a \in NonExiledActors: 
+    \/ \E a \in NonFaultyActors: 
        \E droppedMsgs \in SubBag(droppedMsgsTo(a)): 
        DropOracle(a,droppedMsgs)
-    \/ \E a \in NonExiledActors: 
+    \/ \E a \in NonFaultyActors: 
        \E exiledNodes \in SUBSET (ExiledNodes \ actors[a].exiled): 
        ExileOracle(a, exiledNodes)
 
@@ -215,7 +215,7 @@ apparentIAcqs(b) == M!apparentIAcqs(b)
 appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
 
 appearsPotentiallyUnblockedUpToAFault(S) == 
-    /\ pdom(snapshots) \ AppearsClosed \subseteq S
+    /\ pdom(snapshots) \ (AppearsClosed \union AppearsCrashed) \subseteq S
     /\ AppearsReceptionist \ AppearsCrashed \subseteq S \* NEW: Exiled actors still appear potentially unblocked
     /\ AppearsUnblocked \ AppearsCrashed \subseteq S
     /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsCrashed :
@@ -244,31 +244,49 @@ AppearsQuiescent ==
 
 SoundnessUpToAFault == 
     AppearsQuiescentUpToAFault \subseteq NonExiledActors => 
-    AppearsQuiescentUpToAFault \subseteq Quiescent
+    AppearsQuiescentUpToAFault \subseteq QuiescentUpToAFault
 
 Soundness == AppearsQuiescent \subseteq Quiescent
 
-(* Snapshots are now up to date and recent enough only once the oracle has 
-notified the actor about all dropped messages. *)
-SnapshotUpToDate(a) == 
-    /\ M!SnapshotUpToDate(a) 
-    /\ droppedMsgsTo(a) = EmptyBag 
-    /\ ExiledNodes \subseteq actors[a].exiled
+Relevant(a,b) == M!Relevant(a,b)
+SnapshotUpToDate(a) == M!SnapshotUpToDate(a) 
+(* `a' is recent enough for `b' if its snapshot is recent enough or `a' is
+exiled and `b' has been updated about it. *)
 RecentEnough(a,b) == 
-    /\ M!RecentEnough(a,b) 
-    /\ droppedMsgsTo(a) = EmptyBag
-    /\ ExiledNodes \subseteq actors[a].exiled
+    \/ M!RecentEnough(a,b) 
+    \/ a \in ExiledActors => a \in actors[b].exiled
 
 SnapshotsInsufficient == 
-    CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
-    /\ (~SnapshotUpToDate(a) => a \in S) \* NEW: Dropped messages must be delivered.
-    /\ (~RecentEnough(a,b) => b \in S)   \* NEW: Dropped messages must be delivered.
-    /\ (a \in S /\ a \in piacqs(b) => b \in S)
-    /\ (a \in S /\ a \in M!monitoredBy(b) => b \in S)
+    CHOOSE S \in SUBSET pdom(actors): \A a \in pdom(actors): 
+    /\ ~SnapshotUpToDate(a) => a \in S
+    /\ \A b \in pdom(actors) \ CrashedActors:
+        /\ droppedMsgsTo(b) # EmptyBag => b \in S
+        /\ (Relevant(a,b) /\ ~RecentEnough(a,b) => b \in S)
+        /\ (a \in S /\ a \in piacqs(b) => b \in S)
+        /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
 
 SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
 
+CompletenessUpToAFault == 
+    (QuiescentUpToAFault \intersect SnapshotsSufficient) \subseteq AppearsQuiescentUpToAFault
+
 Completeness == (Quiescent \intersect SnapshotsSufficient) \subseteq AppearsQuiescent
 
+-----------------------------------------------------------------------------
+(* OTHER PROPERTIES: *)
+
+SufficientIsTight == AppearsQuiescent \subseteq SnapshotsSufficient
+SufficientIsTightUpToAFault == AppearsQuiescentUpToAFault \subseteq SnapshotsSufficient
+
+-----------------------------------------------------------------------------
+(* TEST CASES: These invariants do not hold because garbage can be detected. *)
+
+GarbageIsDetected1 == ~(AppearsQuiescent # {})
+
+GarbageIsDetected2 == ~(AppearsQuiescentUpToAFault # {})
+
+ExiledGarbage == 
+    \A a \in AppearsQuiescent \intersect NonFaultyActors:
+    ~\E b \in ExiledActors \ pdom(snapshots): actors[b].active[a] > 0
 
 ====
