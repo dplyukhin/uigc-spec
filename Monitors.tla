@@ -41,8 +41,7 @@ Spawn(a,b,state) == D!Spawn(a,b,state)
 
 Crash(a) ==
     /\ actors' = [actors EXCEPT ![a].status = "crashed"]      \* Mark the actor as crashed.
-    /\ msgs'   = removeWhere(msgs, LAMBDA m: m \in msgsTo(a)) \* Messages to crashed actors are dropped.
-    /\ UNCHANGED <<snapshots>>
+    /\ UNCHANGED <<msgs,snapshots>>
 
 Monitor(a,b) ==
     /\ actors' = [actors EXCEPT ![a].monitored = @ \union {b}] \* Add b to the monitored set.
@@ -72,9 +71,8 @@ Next ==
     \/ \E a \in BusyActors: Idle(a)
     \/ \E a \in BusyActors: \E b \in FreshActorName: Spawn(a,b,InitialActorState)
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
-    \/ \E a \in BusyActors: \E b \in acqs(a) \ CrashedActors: \E refs \in SUBSET acqs(a): 
+    \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
         Send(a,b,[target |-> b, refs |-> refs])
-        \* NEW: Messages sent to crashed actors have no effect, so we disallow them.
     \/ \E a \in IdleActors: \E m \in msgsTo(a): Receive(a,m)
     \/ \E a \in IdleActors \union BusyActors \union CrashedActors : Snapshot(a)
         \* NEW: Crashed actors can now take snapshots.
@@ -121,7 +119,7 @@ have not taken a snapshot, then A should be marked as potentially unblocked for 
  *)
 AppearsPotentiallyUnblocked == 
     CHOOSE S \in SUBSET pdom(snapshots) :
-    /\ pdom(snapshots) \ AppearsClosed \subseteq S
+    /\ pdom(snapshots) \ (AppearsClosed \union AppearsCrashed) \subseteq S
     /\ (AppearsReceptionist \union AppearsUnblocked) \ AppearsCrashed \subseteq S
     /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsCrashed :
         /\ (a \in S \intersect apparentIAcqs(b) => b \in S)
@@ -129,42 +127,22 @@ AppearsPotentiallyUnblocked ==
 
 AppearsQuiescent == pdom(snapshots) \ AppearsPotentiallyUnblocked
 
-Soundness == AppearsQuiescent \subseteq Quiescent
-
 -----------------------------------------------------------------------------
 
-Relevant(a, b) == D!Relevant(a, b) \/ a \in monitoredBy(b)
 SnapshotUpToDate(a) == D!SnapshotUpToDate(a)
-RecentEnough(a, b) ==
-    \/ D!RecentEnough(a,b) 
-    \/ (a \in pdom(snapshots) /\ actors[a].status = "crashed" /\ snapshots[a].status = "crashed")
+RecentEnough(a,b) == D!RecentEnough(a,b)
 
-(* A set of snapshots is sufficient for b if:
-   1. b's snapshot is up to date;
-   2. The snapshots of all b's historical inverse acquaintances are recent enough for a;
-   3. The snapshots are sufficient for all of b's potential inverse acquaintances.
- *)
 SnapshotsInsufficient == 
-    CHOOSE S \in SUBSET pdom(actors):
-    /\ \A a \in pdom(actors): 
-        /\ ~SnapshotUpToDate(a) => a \in S
-        \* For crashed actors, a most recent snapshot suffices.
-    /\ \A a \in pdom(actors): \A b \in pdom(actors) \ CrashedActors:
-        /\ (Relevant(a,b) /\ ~RecentEnough(a,b) => b \in S)
+    CHOOSE S \in SUBSET pdom(actors) : \A a \in pdom(actors) :
+    /\ (~SnapshotUpToDate(a) => a \in S)
+    /\ \A b \in pdom(actors) \ CrashedActors :
+        /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in piacqs(b) => b \in S)
-        /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
+        /\ (a \in S /\ a \in monitoredBy(b) => b \in S) \* NEW
 
 SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
 
-(* If an actor is garbage and its snapshot is up to date and the snapshots of
-   all its historical inverse acquaintances are recent enough and 
- *)
-Completeness == (Quiescent \intersect SnapshotsSufficient) \subseteq AppearsQuiescent
-
------------------------------------------------------------------------------
-(* OTHER PROPERTIES: *)
-
-SufficientIsTight == AppearsQuiescent \subseteq SnapshotsSufficient
+Spec == (Quiescent \intersect SnapshotsSufficient) = AppearsQuiescent
 
 -----------------------------------------------------------------------------
 (* TEST CASES: These invariants do not hold because garbage can be detected. *)

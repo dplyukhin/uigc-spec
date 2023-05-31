@@ -150,10 +150,8 @@ SnapshotUpToDate(a) == actors[a] = snapshots[a]
 
 (* A snapshot from a past inverse acquaintance is recent enough if that the
    deactivated count in ths snapshot is up to date with the actual deactivated 
-   count.
- *)
-PastIAcqsRecentEnough(b) == \A a \in pdom(actors):
-    actors[a].deactivated[b] > 0 =>
+   count.  *)
+RecentEnough(a,b) ==
     a \in pdom(snapshots) /\ actors[a].deactivated[b] = snapshots[a].deactivated[b]
 
 (* A set of snapshots is insufficient for b if:
@@ -162,10 +160,11 @@ PastIAcqsRecentEnough(b) == \A a \in pdom(actors):
    3. b is potentially reachable by an actor for which the snapshots are insufficient.
  *)
 SnapshotsInsufficient == 
-    CHOOSE S \in SUBSET pdom(actors) : \A a,b \in pdom(actors) :
+    CHOOSE S \in SUBSET pdom(actors) : \A a \in pdom(actors) :
     /\ (~SnapshotUpToDate(a) => a \in S)
-    /\ (~PastIAcqsRecentEnough(a) => a \in S)
-    /\ (a \in S /\ a \in piacqs(b) => b \in S)
+    /\ \A b \in pdom(actors) :
+        /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
+        /\ (a \in S /\ a \in piacqs(b) => b \in S)
 
 SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
 
@@ -177,12 +176,14 @@ SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
 Spec == (Quiescent \intersect SnapshotsSufficient) = AppearsQuiescent
 
 -----------------------------------------------------------------------------
-(* TEST CASES: These invariants do not hold because garbage can be detected. *)
+(* TEST CASES: These invariants do not hold, showing that interesting forms of 
+   garbage can indeed exist and be detected. *)
 
 (* This invariant fails, showing that the set of quiescent actors is nonempty. *)
 GarbageExists == ~(Quiescent = {})
 
-(* This invariant fails, showing that quiescence can be detected. *)
+(* This invariant fails, showing that quiescence can be detected and that it
+   is possible to obtain a sufficient set of snapshots. *)
 GarbageIsDetected == ~(AppearsQuiescent = {})
 
 (* An actor `b' can appear quiescent when a past inverse acquaintance `a' is not

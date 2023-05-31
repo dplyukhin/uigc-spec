@@ -63,10 +63,12 @@ FreshActorName == IF \E a \in ActorName : actors[a] = null
                   THEN {CHOOSE a \in ActorName : actors[a] = null}
                   ELSE {}
 
-msgsTo(a)  == { m \in BagToSet(msgs) : m.target = a }
-acqs(a)    == { b \in ActorName : actors[a].active[b] > 0 }
-pacqs(a)   == { b \in ActorName : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
-piacqs(b)  == { a \in pdom(actors) : b \in pacqs(a) }
+msgsTo(a)    == { m \in BagToSet(msgs) : m.target = a }
+acqs(a)      == { b \in ActorName : actors[a].active[b] > 0 }
+pacqs(a)     == { b \in ActorName : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
+piacqs(b)    == { a \in pdom(actors) : b \in pacqs(a) }
+pastAcqs(a)  == { b \in ActorName : actors[a].deactivated[b] > 0 }
+pastIAcqs(b) == { a \in pdom(actors) : b \in pastAcqs(a) }
 
 BusyActors    == { a \in pdom(actors) : actors[a].status = "busy" }
 IdleActors    == { a \in pdom(actors) : actors[a].status = "idle" }
