@@ -65,6 +65,7 @@ FreshActorName == IF \E a \in ActorName : actors[a] = null
 
 msgsTo(a)    == { m \in BagToSet(msgs) : m.target = a }
 acqs(a)      == { b \in ActorName : actors[a].active[b] > 0 }
+iacqs(b)     == { a \in pdom(actors) : b \in acqs(a) }
 pacqs(a)     == { b \in ActorName : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
 piacqs(b)    == { a \in pdom(actors) : b \in pacqs(a) }
 pastAcqs(a)  == { b \in ActorName : actors[a].deactivated[b] > 0 }

@@ -100,10 +100,6 @@ PotentiallyUnblocked ==
 
 Quiescent == pdom(actors) \ PotentiallyUnblocked
 
-(* The previous soundness property no longer holds because actors can now become
-   busy by receiving signals from crashed actors or messages from external actors. *)
-OldSoundness == D!AppearsQuiescent \subseteq Quiescent
-
 AppearsUnblocked == D!AppearsUnblocked
 apparentIAcqs(b) == D!apparentIAcqs(b)
 appearsMonitoredBy(a) == snapshots[a].monitored
@@ -148,5 +144,26 @@ Spec == (Quiescent \intersect SnapshotsSufficient) = AppearsQuiescent
 (* TEST CASES: These invariants do not hold because garbage can be detected. *)
 
 GarbageIsDetected == AppearsQuiescent = {}
+
+(* This invariant fails, showing that the set of quiescent actors is nonempty. *)
+GarbageExists == ~(Quiescent = {})
+
+(* This invariant fails, showing that quiescence can be detected and that it
+   is possible to obtain a sufficient set of snapshots. *)
+GarbageIsDetected == ~(AppearsQuiescent = {})
+
+(* This invariant fails, showing that quiescent actors can have crashed inverse
+   acquaintances. *)
+CrashedGarbageIsDetected ==
+  ~(\E a,b \in pdom(actors): a # b /\ a \in Crashed /\ b \in AppearsQuiescent /\ 
+    a \in iacqs(b))
+
+(* The previous soundness property no longer holds because actors can now become
+   busy by receiving signals from crashed actors or messages from external actors. *)
+OldSoundness == D!AppearsQuiescent \subseteq Quiescent
+
+(* The previous completeness property no longer holds because snapshots from
+   monitored actors need to be up to date. *)
+OldCompleteness == (Quiescent \intersect D!SnapshotsSufficient) \subseteq AppearsQuiescent
 
 ====
