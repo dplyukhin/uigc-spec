@@ -289,12 +289,21 @@ SufficientIsTightUpToAFault == AppearsQuiescentUpToAFault \subseteq SnapshotsSuf
 -----------------------------------------------------------------------------
 (* TEST CASES: These invariants do not hold because garbage can be detected. *)
 
-GarbageIsDetected1 == ~(AppearsQuiescent # {})
+(* This invariant fails, showing that the set of quiescent actors is nonempty. *)
+GarbageExists == ~(Quiescent = {})
 
-GarbageIsDetected2 == ~(AppearsQuiescentUpToAFault # {})
+(* This invariant fails, showing that quiescence can be detected and that it
+   is possible to obtain a sufficient set of snapshots. *)
+GarbageIsDetected == ~(AppearsQuiescent = {})
 
-ExiledGarbage == 
-    \A a \in AppearsQuiescent \intersect NonFaultyActors:
-    ~\E b \in ExiledActors \ pdom(snapshots): actors[b].active[a] > 0
+(* This invariant fails, showing that quiescent actors can have crashed inverse
+   acquaintances. *)
+ExiledGarbageIsDetected == 
+  ~(\E a,b \in pdom(actors): a # b /\ a \in ExiledActors /\ b \in AppearsQuiescent /\ 
+    a \in iacqs(b))
+
+(* This invariant fails, showing that "quiescence up to a fault" is a strict 
+   superset of quiescence. *)
+GarbageUpToAFault == AppearsQuiescentUpToAFault \subseteq AppearsQuiescent
 
 ====
