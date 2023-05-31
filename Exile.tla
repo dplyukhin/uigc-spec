@@ -248,20 +248,28 @@ SoundnessUpToAFault ==
 
 Soundness == AppearsQuiescent \subseteq Quiescent
 
-Relevant(a,b) == M!Relevant(a,b)
-SnapshotUpToDate(a) == M!SnapshotUpToDate(a) 
-(* `a' is recent enough for `b' if its snapshot is recent enough or `a' is
-exiled and `b' has been updated about it. *)
-RecentEnough(a,b) == 
-    \/ M!RecentEnough(a,b) 
-    \/ a \in ExiledActors => a \in actors[b].exiled
+(* NEW: A snapshot is up to date if all fields except `exiled' agree the actor's
+   current state. *)
+SnapshotUpToDate(a) ==
+    /\ a \in pdom(snapshots)
+    /\ actors[a].status = snapshots[a].status
+    /\ actors[a].recvCount = snapshots[a].recvCount
+    /\ actors[a].sendCount = snapshots[a].sendCount
+    /\ actors[a].active = snapshots[a].active
+    /\ actors[a].deactivated = snapshots[a].deactivated
+    /\ actors[a].created = snapshots[a].created
+    /\ actors[a].monitored = snapshots[a].monitored
+    /\ actors[a].isReceptionist = snapshots[a].isReceptionist
+RecentEnough(a,b) == M!RecentEnough(a,b)
+FinishedExile(a,b) == location[a] \in actors[b].exiled
 
 SnapshotsInsufficient == 
-    CHOOSE S \in SUBSET pdom(actors): \A a \in pdom(actors): 
-    /\ ~SnapshotUpToDate(a) => a \in S
-    /\ \A b \in pdom(actors) \ CrashedActors:
-        /\ droppedMsgsTo(b) # EmptyBag => b \in S
-        /\ (Relevant(a,b) /\ ~RecentEnough(a,b) => b \in S)
+    CHOOSE S \in SUBSET NonExiledActors : \A a \in NonExiledActors : \* NEW: Non-exield actors
+    /\ (~SnapshotUpToDate(a) => a \in S)
+    /\ \A b \in NonFaultyActors :
+        /\ droppedMsgsTo(b) # EmptyBag => b \in S \* NEW
+        /\ (a \in ExiledActors \intersect piacqs(b) /\ ~FinishedExile(a,b) => b \in S) \* NEW
+        /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in piacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
 
