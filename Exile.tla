@@ -125,6 +125,10 @@ Exile(nodes) ==
                                    ELSE oracle[n]]
     /\ UNCHANGED <<snapshots,oracleSnapshots,location>>
 
+OracleSnapshot(node) ==
+    /\ oracleSnapshots' = [oracleSnapshots EXCEPT ![node] = oracle[node]]
+    /\ UNCHANGED <<actors,msgs,snapshots,oracle,location,nodeStatus>>
+
 (*
 DropOracle(a, droppedMsgs) ==
     LET node == location[a]
@@ -180,6 +184,7 @@ Next ==
     \/ \E a \in BusyActors \intersect Receptionists: Unregister(a)
     \/ \E m \in BagToSet(msgs): Drop(m)
     \/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
+    \/ \E node \in NonExiledNodes: OracleSnapshot(node)
     (*
     \/ \E a \in NonFaultyActors: 
        \E droppedMsgs \in SubBag(droppedMsgsTo(a)): 
@@ -190,6 +195,11 @@ Next ==
 
 -----------------------------------------------------------------------------
 (* ACTUAL GARBAGE *)
+
+(* An actor is potentially unblocked if it is busy or can become busy. 
+   (Crashed and exiled actors automatically fail this definition.)
+   Similarly, an actor is potentially unblocked up-to-a-fault if it is busy
+   or it can become busy in a non-faulty extension of this execution. *)
 
 monitoredBy(b) == M!monitoredBy(b)
 
@@ -207,6 +217,9 @@ isPotentiallyUnblocked(S) ==
         /\ (a \in monitoredBy(b) /\ location[a] # location[b] => b \in S)
             \* NEW: Actors that monitor remote actors are not garbage
 
+(* An actor is quiescent if it has not been exiled and it is not potentially 
+   unblocked. Likewise for quiescence up-to-a-fault. *)
+
 PotentiallyUnblockedUpToAFault == 
     CHOOSE S \in SUBSET pdom(actors) \ FaultyActors : isPotentiallyUnblockedUpToAFault(S)
 QuiescentUpToAFault == 
@@ -219,13 +232,6 @@ Quiescent ==
 
 -----------------------------------------------------------------------------
 (* APPARENT GARBAGE *)
-
-AppearsCrashed == M!AppearsCrashed
-AppearsFaulty == M!AppearsCrashed \union ExiledActors \* Nodes have common knowledge about exiled actors.
-AppearsReceptionist == M!AppearsReceptionist
-AppearsUnblocked == M!AppearsUnblocked
-apparentIAcqs(b) == M!apparentIAcqs(b)
-appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
 
 appearsPotentiallyUnblockedUpToAFault(S) == 
     /\ pdom(snapshots) \ (AppearsClosed \union AppearsCrashed) \subseteq S
