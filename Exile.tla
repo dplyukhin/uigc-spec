@@ -1,5 +1,5 @@
 ---- MODULE Exile ----
-(* This model extends the Dropped model with dropped messages and faulty nodes.  *)
+(* This model extends the Monitors model with dropped messages and faulty nodes.  *)
 EXTENDS Common, Integers, FiniteSets, Bags, TLC
 
 (* Every node has a unique ID, status, and oracle. Every actor has a fixed location.  *)
@@ -17,49 +17,46 @@ ActorState == [
     deactivated : [ActorName -> Nat],
     created     : [ActorName \X ActorName -> Nat],
     monitored   : SUBSET ActorName,
-    exiled      : SUBSET NodeID, \* NEW: The set of nodes that this actor has exiled.
     isReceptionist : BOOLEAN
 ]
 
-InitialActorState ==
-    M!InitialActorState @@ [
-        exiled |-> {}
-    ]
+InitialActorState == M!InitialActorState
 
-(* In order to model exile, messages are now tagged with the ID of the sender node. *)
+(* In order to model exile, messages are now tagged with the ID of the sender node. 
+   This ID is not necessary for implementing the garbage collection algorithm itself. *)
 Message == [origin: NodeID, target: ActorName, refs : SUBSET ActorName] 
 
 TypeOK == 
   /\ actors         \in [ActorName -> ActorState \cup {null}]
   /\ snapshots      \in [ActorName -> ActorState \cup {null}]
   /\ BagToSet(msgs) \subseteq Message
-  /\ nodeStatus \in [NodeID -> {"up", "down"}] \* Each node is either up or down.
-  /\ DOMAIN oracle = NodeID                    \* Each node has an oracle tracking messages.
+  /\ nodeStatus \in [NodeID -> {"in", "out"}] \* Each node is in the cluster or out of it.
+  /\ DOMAIN oracle = NodeID                   \* Each node has an oracle tracking messages.
   /\ \A n \in NodeID : 
     BagToSet(oracle[n].delivered) \subseteq Message /\ 
     BagToSet(oracle[n].dropped) \subseteq Message
-  /\ location   \in [ActorName -> NodeID \cup {null}] \* Each actor has a location.
+  /\ location \in [ActorName -> NodeID \cup {null}] \* Each actor has a location.
   /\ \A a \in ActorName : actors[a] # null => location[a] # null
 
 InitialConfiguration(actor, node, actorState) == 
     /\ M!InitialConfiguration(actor, actorState)
-    /\ nodeStatus = [n \in NodeID |-> "up"]
+    /\ nodeStatus = [n \in NodeID |-> "in"]
     /\ oracle     = [n \in NodeID |-> [delivered |-> EmptyBag, dropped |-> EmptyBag]]
     /\ location   = [a \in ActorName |-> IF a = actor THEN node ELSE null]
 
 -----------------------------------------------------------------------------
 (* SET DEFINITIONS *)
 
-ExiledNodes     == { n \in NodeID : nodeStatus[n] = "down" }
+ExiledNodes     == { n \in NodeID : nodeStatus[n] = "out" }
 ExiledActors    == { a \in pdom(actors) : actors[a].status = "exiled" }
 FaultyActors    == ExiledActors \union CrashedActors
-NonExiledNodes  == { n \in NodeID : nodeStatus[n] = "up" }
+NonExiledNodes  == { n \in NodeID : nodeStatus[n] = "in" }
 NonExiledActors == pdom(actors) \ ExiledActors
 NonFaultyActors == pdom(actors) \ FaultyActors
 
-(* The bag of messages that have been sent to `a' and dropped. *)
+(* The bag of messages that have been sent to `a' by non-exiled nodes and dropped. *)
 droppedMsgsTo(a) == 
-    selectWhere(oracle[location[a]].dropped, LAMBDA m: m.target = a)
+    selectWhere(oracle[location[a]].dropped, LAMBDA m: m.target = a /\ m.origin \notin ExiledNodes)
 (* The bag of messages that have been delivered to `a' from `nodes'. *)
 deliveredMsgsTo(a, nodes) == 
     selectWhere(oracle[location[a]].delivered, LAMBDA m: m.target = a /\ m.origin \in nodes)
@@ -107,13 +104,10 @@ Exile(nodes) ==
                  ]
     /\ msgs' = removeWhere(msgs, LAMBDA msg: 
                 msg.origin \in nodes /\ location[msg.target] \in nodes)
-    /\ nodeStatus' = [n \in NodeID |-> IF n \in nodes THEN "down" ELSE nodeStatus[n]]
-    /\ oracle'     = [n \in NodeID |-> IF n \in nodes
-                                       THEN [oracle[n] EXCEPT !.dropped = EmptyBag] 
-                                        \* Dropped messages no longer need to be recorded after exile.
-                                       ELSE oracle[n]]
+    /\ nodeStatus' = [n \in NodeID |-> IF n \in nodes THEN "out" ELSE nodeStatus[n]]
     /\ UNCHANGED <<snapshots,location>>
 
+(*
 DropOracle(a, droppedMsgs) ==
     LET node == location[a]
         droppedCount == BagCardinality(droppedMsgs)
@@ -143,6 +137,7 @@ ExileOracle(a, exiledNodes) ==
                    ![a].exiled = @ \union exiledNodes
                  ]
     /\ UNCHANGED <<msgs,snapshots,location,nodeStatus,oracle>>
+*)
 
 Init == 
     InitialConfiguration(CHOOSE a \in ActorName: TRUE, CHOOSE n \in NodeID: TRUE, InitialActorState)
@@ -167,12 +162,13 @@ Next ==
     \/ \E a \in BusyActors \intersect Receptionists: Unregister(a)
     \/ \E m \in BagToSet(msgs): Drop(m)
     \/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
+    (*
     \/ \E a \in NonFaultyActors: 
        \E droppedMsgs \in SubBag(droppedMsgsTo(a)): 
        DropOracle(a,droppedMsgs)
     \/ \E a \in NonFaultyActors: 
        \E exiledNodes \in SUBSET (ExiledNodes \ actors[a].exiled): 
-       ExileOracle(a, exiledNodes)
+       ExileOracle(a, exiledNodes *)
 
 -----------------------------------------------------------------------------
 (* ACTUAL GARBAGE *)
@@ -206,7 +202,6 @@ Quiescent ==
 -----------------------------------------------------------------------------
 (* APPARENT GARBAGE *)
 
-AppearsClosed == M!AppearsClosed
 AppearsCrashed == M!AppearsCrashed
 AppearsFaulty == M!AppearsCrashed \union ExiledActors \* Nodes have common knowledge about exiled actors.
 AppearsReceptionist == M!AppearsReceptionist
@@ -261,7 +256,6 @@ SnapshotUpToDate(a) ==
     /\ actors[a].monitored = snapshots[a].monitored
     /\ actors[a].isReceptionist = snapshots[a].isReceptionist
 RecentEnough(a,b) == M!RecentEnough(a,b)
-FinishedExile(a,b) == location[a] \in actors[b].exiled
 
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET NonExiledActors : 
@@ -272,7 +266,7 @@ SnapshotsInsufficient ==
         \* NEW: Exiled potential inverse acquaintances must be processed.
     /\ \A a \in NonExiledActors : \A b \in NonFaultyActors :
         /\ droppedMsgsTo(b) # EmptyBag => b \in S 
-        \* NEW: Dropped messages must be detected.
+        \* NEW: Dropped messages from non-exiled nodes must be detected.
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in piacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
