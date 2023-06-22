@@ -25,8 +25,9 @@ map1 ++ map2 == [ a \in DOMAIN map1 |-> IF a \in DOMAIN map2
 (* Notation for manipulating bags, i.e. multisets. TLA+ represents bags as 
 functions from a set of elements to a count of how many elements are in the bag.
 *)
-put(bag, x)    == bag (+) SetToBag({x})      \* Adds x to the bag.
-remove(bag, x) == bag (-) SetToBag({x})      \* Removes x from the bag.
+put(bag, x)        == bag (+) SetToBag({x})  \* Adds x to the bag.
+remove(bag, x)     == bag (-) SetToBag({x})  \* Removes x from the bag.
+replace(bag, x, y) == put(remove(bag, x), y) \* Replaces x with y in the bag.
 RECURSIVE removeAll(_, _)                    \* Removes all of S from the bag.
 removeAll(bag, S) ==
     IF S = {} THEN bag ELSE 

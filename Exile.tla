@@ -15,24 +15,25 @@ ActorState == M!ActorState
 InitialActorState == M!InitialActorState
 
 (* We add two fields to every message. `origin' indicates the node that produced the
-   message and `processed' indicates whether the oracle has processed the message. 
-   All messages are processed by the oracle before they can be delivered. *)
-Message == [origin: NodeID, processed: BOOLEAN, target: ActorName, refs : SUBSET ActorName] 
+   message and `marked' indicates whether the oracle has marked the message. 
+   All messages are marked by the oracle before they can be delivered. *)
+Message == [origin: NodeID, marked: BOOLEAN, target: ActorName, refs : SUBSET ActorName] 
 
 -----------------------------------------------------------------------------
 (* SET DEFINITIONS *)
 
-FaultyActors    == ExiledActors \union CrashedActors
-NonExiledActors == pdom(actors) \ ExiledActors
-NonFaultyActors == pdom(actors) \ FaultyActors
+ShunnedBy(N_1)    == { N_2 \in NodeID : oracle[N_1,N_2].shunned }
+NotShunnedBy(N_1) == NodeID \ ShunnedBy(N_1)
 
 MessagesTo(node) == { m \in Message : location[m.target] = node }
-(* Only processed messages can be delivered. *)
-deliverableMsgsTo(a) == { a \in msgsTo(a) : a.processed }
-(* A message is processable by the oracle if the message is unprocessed and the
+(* Only marked messages can be delivered. *)
+deliverableMsgsTo(a) == { a \in msgsTo(a) : a.marked }
+(* A message is markable by the oracle if the message is unmarked and the
     destination node does not shun the origin node. *)
-ProcessableMsgs == 
-    { m \in msgs : ~m.processed /\ ~oracle[location[m.target], m.origin].shuns }
+MarkableMsgs == 
+    { m \in BagToSet(msgs) : ~m.marked /\ ~oracle[location[m.target], m.origin].shunned }
+        
+NeitherShuns(N_1, N_2) == ~oracle[N_1, N_2].shunned /\ ~oracle[N_2, N_1].shunned
 
 -----------------------------------------------------------------------------
 (* INITIALIZATION AND BASIC INVARIANTS *)
@@ -57,8 +58,16 @@ TypeOK ==
 
 InitialConfiguration(actor, node, actorState) == 
     /\ M!InitialConfiguration(actor, actorState)
-    /\ oracle          = [n \in NodeID |-> [delivered |-> EmptyBag, dropped |-> EmptyBag, exiled |-> {}]]
-    /\ oracleSnapshots = [n \in NodeID |-> null]
+    /\ oracle = 
+        [N_1, N_2 \in NodeID |->
+            [sentCount    |-> [a \in ActorName |-> 0],
+             sentRefs     |-> [a,b \in ActorName |-> 0]
+             droppedCount |-> [a \in ActorName |-> 0],
+             droppedRefs  |-> [a,b \in ActorName |-> 0],
+             shunned      |-> {}
+            ]
+        ]
+    /\ oracleSnapshots = [N_1, N_2 \in NodeID |-> null]
     /\ location        = [a \in ActorName |-> IF a = actor THEN node ELSE null]
 
 -----------------------------------------------------------------------------
@@ -76,31 +85,40 @@ Register(a)     == M!Register(a)     /\ UNCHANGED <<location,oracle,oracleSnapsh
 Wakeup(a)       == M!Wakeup(a)       /\ UNCHANGED <<location,oracle,oracleSnapshots>>
 Unregister(a)   == M!Unregister(a)   /\ UNCHANGED <<location,oracle,oracleSnapshots>>
 
-Process(m) ==
-    LET node == location[m.target] IN
-    /\ oracle' = [oracle EXCEPT ![node].delivered = put(@, m)]
-    /\ msgs' = put(remove(msgs, m), [m EXCEPT !.processed = TRUE])
+Mark(m) ==
+    LET N_1 == m.origin
+        N_2 == location[m.target] 
+        B == SetToBag(m.refs)
+    IN
+    /\ oracle' = [oracle EXCEPT ![N_1,N_2].sentCount = @ + 1, ![N_1,N_2].sentRefs = @ (+) B]
+    /\ msgs' = replace(msgs, m, [m EXCEPT !.marked = TRUE])
     /\ UNCHANGED <<actors,snapshots,oracleSnapshots,location>>
 
-Spawn(a,b,state,node) == 
+Spawn(a,b,state,N) == 
     /\ M!Spawn(a, b, state)
-    /\ location' = [location EXCEPT ![b] = node]
+    /\ location' = [location EXCEPT ![b] = N]
     /\ UNCHANGED <<oracleSnapshots,oracle>>
 
+(* If a message is not marked, then the message is added to the oracle's bag of dropped messages. 
+   If the message is marked, the oracle moves the message from its bag of sent messages to its bag
+   of dropped messages. *)
 Drop(m) == 
-    LET node == location[m.target] IN
+    LET N_1 == m.origin 
+        N_2 == location[m.target]
+        B == SetToBag(m.refs)
+    IN
     /\ msgs' = remove(msgs, m)
-    /\ oracle' = [oracle EXCEPT ![node].dropped = put(@, m)]
+    /\ IF ~m.marked THEN 
+           oracle' = [oracle EXCEPT ![N_1,N_2].droppedCount = @+1, ![N_1,N_2].droppedRefs = @ (+) B]
+       ELSE
+           oracle' = [oracle EXCEPT ![N_1,N_2].droppedCount = @+1, ![N_1,N_2].droppedRefs = @ (+) B,
+                                    ![N_1,N_2].sentCount = @-1,    ![N_1,N_2].sentRefs = @ (-) B]
     /\ UNCHANGED <<actors,snapshots,oracleSnapshots,location>>
 
 Shun(N_1, N_2) ==
-    (* Silently drop all unprocessed messages originating from the shunned node. *)
-    /\ msgs' = removeWhere(msgs, LAMBDA msg: 
-                ~msg.processed /\ location[msg.target] = N_1 /\ msg.origin = N_2)
-    /\ oracle' = [n \in NodeID |-> IF n \notin ExiledNodes \union nodes 
-                                   THEN [oracle[n] EXCEPT !.exiled = @ \union nodes]
-                                   ELSE oracle[n]]
-    /\ UNCHANGED <<snapshots,oracleSnapshots,location>>
+    /\ oracle' = [oracle EXCEPT ![N_1,N_2].shunned = TRUE]
+    /\ msgs' = removeWhere(msgs, LAMBDA m: location[m.target] = N_1 /\ m.origin = N_2)
+    /\ UNCHANGED <<actors,snapshots,oracleSnapshots,location>>
 
 OracleSnapshot(node) ==
     /\ (oracleSnapshots[node].exiled # oracle[node].exiled \/ 
@@ -145,11 +163,13 @@ Init ==
 
 Next ==
     \/ \E a \in BusyActors: Idle(a)
-    \/ \E a \in BusyActors: \E b \in FreshActorName: \E n \in NonExiledNodes: Spawn(a,b,InitialActorState,n)
+    \/ \E a \in BusyActors: \E b \in FreshActorName: \E N \in NodeID: 
+       NeitherShuns(location[a], N) /\ Spawn(a,b,InitialActorState,N)
         \* NEW: Actors are spawned onto a specific (non-exiled) node.
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
-    \/ \E a \in BusyActors: \E b \in acqs(a) \ ExiledActors: \E refs \in SUBSET acqs(a): 
-        Send(a,b,[origin |-> location[a], processed |-> FALSE, target |-> b, refs |-> refs])
+    \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
+        NeitherShuns(location[a], location[b]) /\
+        Send(a,b,[origin |-> location[a], marked |-> FALSE, target |-> b, refs |-> refs])
         \* NEW: Messages are tagged with node locations and cannot be sent to faulty actors.
     \/ \E a \in IdleActors: \E m \in deliverableMsgsTo(a): Receive(a,m)
     \/ \E a \in IdleActors \union BusyActors \union CrashedActors: Snapshot(a)
@@ -164,7 +184,7 @@ Next ==
     \/ \E m \in BagToSet(msgs): Drop(m)
     \/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
     \/ \E node \in NonExiledNodes: OracleSnapshot(node)
-    \/ \E m \in ProcessableMsgs: Process(m)
+    \/ \E m \in MarkableMsgs: Mark(m)
     (*
     \/ \E a \in NonFaultyActors: 
        \E droppedMsgs \in SubBag(droppedMsgsTo(a)): 
@@ -334,7 +354,7 @@ SnapshotsInsufficient ==
         \* NEW: Snapshots from exiled actors are always sufficient.
     /\ \A a \in ExiledActors : \A b \in NonFaultyActors :
         (a \in piacqs(b) /\ ~FinishedExile(a,b) => b \in S)
-        \* NEW: Exiled potential inverse acquaintances must be processed.
+        \* NEW: Exiled potential inverse acquaintances must be marked.
     /\ \A a \in NonExiledActors : \A b \in NonFaultyActors :
         /\ droppedMsgsTo(b) # EmptyBag => b \in S 
         \* NEW: Dropped messages from non-exiled nodes must be detected.
