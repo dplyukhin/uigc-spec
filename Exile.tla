@@ -15,9 +15,9 @@ ActorState == M!ActorState
 InitialActorState == M!InitialActorState
 
 (* We add two fields to every message. `origin' indicates the node that produced the
-   message and `marked' indicates whether the oracle has marked the message. 
-   All messages are marked by the oracle before they can be delivered. *)
-Message == [origin: NodeID, marked: BOOLEAN, target: ActorName, refs : SUBSET ActorName] 
+   message and `inMailbox' indicates whether the message has been placed in a mailbox
+   on the destination node. All messages must be placed in a mailbox before delivery. *)
+Message == [origin: NodeID, inMailbox: BOOLEAN, target: ActorName, refs : SUBSET ActorName] 
 
 -----------------------------------------------------------------------------
 (* SET DEFINITIONS *)
@@ -26,12 +26,12 @@ ShunnedBy(N_1)    == { N_2 \in NodeID : oracle[N_1,N_2].shunned }
 NotShunnedBy(N_1) == NodeID \ ShunnedBy(N_1)
 
 MessagesTo(node) == { m \in Message : location[m.target] = node }
-(* Only marked messages can be delivered. *)
-deliverableMsgsTo(a) == { a \in msgsTo(a) : a.marked }
-(* A message is markable by the oracle if the message is unmarked and the
-    destination node does not shun the origin node. *)
-MarkableMsgs == 
-    { m \in BagToSet(msgs) : ~m.marked /\ ~oracle[location[m.target], m.origin].shunned }
+(* A message must be placed in a mailbox before being delivered. *)
+deliverableMsgsTo(a) == { a \in msgsTo(a) : a.inMailbox }
+(* A message can enter a mailbox if it is not already in a mailbox and the origin
+   node is not shunned by the destination node. *)
+CanEnterMailbox ==
+    { m \in BagToSet(msgs) : ~m.inMailbox /\ ~oracle[m.origin, location[m.target]].shunned }
         
 NeitherShuns(N_1, N_2) == ~oracle[N_1, N_2].shunned /\ ~oracle[N_2, N_1].shunned
 
@@ -85,13 +85,13 @@ Register(a)     == M!Register(a)     /\ UNCHANGED <<location,oracle,oracleSnapsh
 Wakeup(a)       == M!Wakeup(a)       /\ UNCHANGED <<location,oracle,oracleSnapshots>>
 Unregister(a)   == M!Unregister(a)   /\ UNCHANGED <<location,oracle,oracleSnapshots>>
 
-Mark(m) ==
+Enter(m) ==
     LET N_1 == m.origin
         N_2 == location[m.target] 
         B == SetToBag(m.refs)
     IN
     /\ oracle' = [oracle EXCEPT ![N_1,N_2].sentCount = @ + 1, ![N_1,N_2].sentRefs = @ (+) B]
-    /\ msgs' = replace(msgs, m, [m EXCEPT !.marked = TRUE])
+    /\ msgs' = replace(msgs, m, [m EXCEPT !.inMailbox = TRUE])
     /\ UNCHANGED <<actors,snapshots,oracleSnapshots,location>>
 
 Spawn(a,b,state,N) == 
@@ -108,7 +108,7 @@ Drop(m) ==
         B == SetToBag(m.refs)
     IN
     /\ msgs' = remove(msgs, m)
-    /\ IF ~m.marked THEN 
+    /\ IF ~m.inMailbox THEN 
            oracle' = [oracle EXCEPT ![N_1,N_2].droppedCount = @+1, ![N_1,N_2].droppedRefs = @ (+) B]
        ELSE
            oracle' = [oracle EXCEPT ![N_1,N_2].droppedCount = @+1, ![N_1,N_2].droppedRefs = @ (+) B,
@@ -169,7 +169,8 @@ Next ==
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
     \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
         NeitherShuns(location[a], location[b]) /\
-        Send(a,b,[origin |-> location[a], marked |-> FALSE, target |-> b, refs |-> refs])
+        Send(a,b,[origin |-> location[a], inMailbox |-> location[b] = location[a], 
+                  target |-> b, refs |-> refs])
         \* NEW: Messages are tagged with node locations and cannot be sent to faulty actors.
     \/ \E a \in IdleActors: \E m \in deliverableMsgsTo(a): Receive(a,m)
     \/ \E a \in IdleActors \union BusyActors \union CrashedActors: Snapshot(a)
@@ -184,7 +185,7 @@ Next ==
     \/ \E m \in BagToSet(msgs): Drop(m)
     \/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
     \/ \E node \in NonExiledNodes: OracleSnapshot(node)
-    \/ \E m \in MarkableMsgs: Mark(m)
+    \/ \E m \in CanEnterMailbox: Mark(m)
     (*
     \/ \E a \in NonFaultyActors: 
        \E droppedMsgs \in SubBag(droppedMsgsTo(a)): 
