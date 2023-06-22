@@ -3,56 +3,37 @@
 EXTENDS Common, Integers, FiniteSets, Bags, TLC
 
 (* Every node has a unique ID, status, and oracle. Oracles can take snapshots. 
-   Every actor has a fixed location.  *)
+   Every actor has a fixed location. *)
 CONSTANT NodeID
-VARIABLE nodeStatus, oracle, oracleSnapshots, location
+VARIABLE oracle, oracleSnapshots, location
 
 (* Import operators from the Monitors model. *)
 M == INSTANCE Monitors
 
-ActorState == [
-    status      : {"busy", "idle", "crashed", "exiled"}, \* NEW: Actors may become "exiled".
-    \* Like crashed actors, exiled actors are "stuck"; they cannot take additional steps.
-    \* But unlike crashed actors, exiled actors cannot take snapshots.
-    recvCount   : Nat,
-    sendCount   : [ActorName -> Nat],
-    active      : [ActorName -> Nat],
-    deactivated : [ActorName -> Nat],
-    created     : [ActorName \X ActorName -> Nat],
-    monitored   : SUBSET ActorName,
-    isReceptionist : BOOLEAN
-]
+ActorState == M!ActorState
 
 InitialActorState == M!InitialActorState
 
-(* In order to model exile, messages are now tagged with the ID of the sender node. 
-   This ID is not necessary for implementing the garbage collection algorithm itself. *)
-Message == [origin: NodeID, target: ActorName, refs : SUBSET ActorName] 
+(* We add two fields to every message. `origin' indicates the node that produced the
+   message and `processed' indicates whether the oracle has processed the message. 
+   All messages are processed by the oracle before they can be delivered. *)
+Message == [origin: NodeID, processed: BOOLEAN, target: ActorName, refs : SUBSET ActorName] 
 
 -----------------------------------------------------------------------------
 (* SET DEFINITIONS *)
 
-ExiledNodes     == { n \in NodeID : nodeStatus[n] = "out" }
-ExiledActors    == { a \in pdom(actors) : actors[a].status = "exiled" }
 FaultyActors    == ExiledActors \union CrashedActors
-NonExiledNodes  == { n \in NodeID : nodeStatus[n] = "in" }
 NonExiledActors == pdom(actors) \ ExiledActors
 NonFaultyActors == pdom(actors) \ FaultyActors
 
 MessagesTo(node) == { m \in Message : location[m.target] = node }
+(* Only processed messages can be delivered. *)
+deliverableMsgsTo(a) == { a \in msgsTo(a) : a.processed }
+(* A message is processable by the oracle if the message is unprocessed and the
+    destination node does not shun the origin node. *)
+ProcessableMsgs == 
+    { m \in msgs : ~m.processed /\ ~oracle[location[m.target], m.origin].shuns }
 
-(* The bag of messages that have been sent to `a' by non-exiled nodes and dropped. *)
-droppedMsgsTo(a) == 
-    selectWhere(oracle[location[a]].dropped, LAMBDA m: m.target = a /\ m.origin \notin ExiledNodes)
-(* The bag of messages that have been delivered to `a' from `nodes'. *)
-deliveredMsgsTo(a, nodes) == 
-    selectWhere(oracle[location[a]].delivered, LAMBDA m: m.target = a /\ m.origin \in nodes)
-(* The bag of actors on `node' that have received references to `a' from exiledNodes.  
-Each instance of an actor in the bag corresponds to one reference to `a'.*)
-deliveredRefs(a, node, exiledNodes) == 
-    BagOfAll(LAMBDA m: m.target,
-        selectWhere(oracle[node].delivered, 
-            LAMBDA m: a \in m.refs /\ m.origin \in exiledNodes))
 -----------------------------------------------------------------------------
 (* INITIALIZATION AND BASIC INVARIANTS *)
 
@@ -69,7 +50,6 @@ TypeOK ==
   /\ actors         \in [ActorName -> ActorState \cup {null}]
   /\ snapshots      \in [ActorName -> ActorState \cup {null}]
   /\ BagToSet(msgs) \subseteq Message
-  /\ nodeStatus \in [NodeID -> {"in", "out"}]       \* Each node is in the cluster or out of it.
   /\ OracleTypeOK(oracle)                           \* Each node has an oracle tracking messages.
   /\ OracleTypeOK(oracleSnapshots)                  \* Oracles can take snapshots.
   /\ location \in [ActorName -> NodeID \cup {null}] \* Each actor has a location.
@@ -77,7 +57,6 @@ TypeOK ==
 
 InitialConfiguration(actor, node, actorState) == 
     /\ M!InitialConfiguration(actor, actorState)
-    /\ nodeStatus      = [n \in NodeID |-> "in"]
     /\ oracle          = [n \in NodeID |-> [delivered |-> EmptyBag, dropped |-> EmptyBag, exiled |-> {}]]
     /\ oracleSnapshots = [n \in NodeID |-> null]
     /\ location        = [a \in ActorName |-> IF a = actor THEN node ELSE null]
@@ -85,49 +64,49 @@ InitialConfiguration(actor, node, actorState) ==
 -----------------------------------------------------------------------------
 (* TRANSITION RULES *)
 
-Idle(a)         == M!Idle(a)         /\ UNCHANGED <<location,nodeStatus,oracle,oracleSnapshots>>
-Deactivate(a,b) == M!Deactivate(a,b) /\ UNCHANGED <<location,nodeStatus,oracle,oracleSnapshots>>
-Send(a,b,m)     == M!Send(a,b,m)     /\ UNCHANGED <<location,nodeStatus,oracle,oracleSnapshots>>
-Snapshot(a)     == M!Snapshot(a)     /\ UNCHANGED <<location,nodeStatus,oracle,oracleSnapshots>>
-Crash(a)        == M!Crash(a)        /\ UNCHANGED <<location,nodeStatus,oracle,oracleSnapshots>>
-Monitor(a,b)    == M!Monitor(a,b)    /\ UNCHANGED <<location,nodeStatus,oracle,oracleSnapshots>>
-Notify(a,b)     == M!Notify(a,b)     /\ UNCHANGED <<location,nodeStatus,oracle,oracleSnapshots>>
-Register(a)     == M!Register(a)     /\ UNCHANGED <<location,nodeStatus,oracle,oracleSnapshots>>
-Wakeup(a)       == M!Wakeup(a)       /\ UNCHANGED <<location,nodeStatus,oracle,oracleSnapshots>>
-Unregister(a)   == M!Unregister(a)   /\ UNCHANGED <<location,nodeStatus,oracle,oracleSnapshots>>
+Idle(a)         == M!Idle(a)         /\ UNCHANGED <<location,oracle,oracleSnapshots>>
+Deactivate(a,b) == M!Deactivate(a,b) /\ UNCHANGED <<location,oracle,oracleSnapshots>>
+Send(a,b,m)     == M!Send(a,b,m)     /\ UNCHANGED <<location,oracle,oracleSnapshots>>
+Receive(a,m)    == M!Receive(a,m)    /\ UNCHANGED <<location,oracle,oracleSnapshots>>
+Snapshot(a)     == M!Snapshot(a)     /\ UNCHANGED <<location,oracle,oracleSnapshots>>
+Crash(a)        == M!Crash(a)        /\ UNCHANGED <<location,oracle,oracleSnapshots>>
+Monitor(a,b)    == M!Monitor(a,b)    /\ UNCHANGED <<location,oracle,oracleSnapshots>>
+Notify(a,b)     == M!Notify(a,b)     /\ UNCHANGED <<location,oracle,oracleSnapshots>>
+Register(a)     == M!Register(a)     /\ UNCHANGED <<location,oracle,oracleSnapshots>>
+Wakeup(a)       == M!Wakeup(a)       /\ UNCHANGED <<location,oracle,oracleSnapshots>>
+Unregister(a)   == M!Unregister(a)   /\ UNCHANGED <<location,oracle,oracleSnapshots>>
 
-Receive(a,m) == M!Receive(a,m) /\
-    LET node == location[a] IN
+Process(m) ==
+    LET node == location[m.target] IN
     /\ oracle' = [oracle EXCEPT ![node].delivered = put(@, m)]
-    /\ UNCHANGED <<nodeStatus,oracleSnapshots,location>>
+    /\ msgs' = put(remove(msgs, m), [m EXCEPT !.processed = TRUE])
+    /\ UNCHANGED <<actors,snapshots,oracleSnapshots,location>>
 
 Spawn(a,b,state,node) == 
     /\ M!Spawn(a, b, state)
     /\ location' = [location EXCEPT ![b] = node]
-    /\ UNCHANGED <<nodeStatus,oracleSnapshots,oracle>>
+    /\ UNCHANGED <<oracleSnapshots,oracle>>
 
 Drop(m) == 
     LET node == location[m.target] IN
     /\ msgs' = remove(msgs, m)
     /\ oracle' = [oracle EXCEPT ![node].dropped = put(@, m)]
-    /\ UNCHANGED <<actors,snapshots,nodeStatus,oracleSnapshots,location>>
+    /\ UNCHANGED <<actors,snapshots,oracleSnapshots,location>>
 
-Exile(nodes) ==
-    /\ actors' = [a \in ActorName |-> 
-                    IF location[a] \notin nodes THEN actors[a] ELSE 
-                    [actors[a] EXCEPT !.status = "exiled"]
-                 ]
+Shun(N_1, N_2) ==
+    (* Silently drop all unprocessed messages originating from the shunned node. *)
     /\ msgs' = removeWhere(msgs, LAMBDA msg: 
-                msg.origin \in nodes /\ location[msg.target] \in nodes)
-    /\ nodeStatus' = [n \in NodeID |-> IF n \in nodes THEN "out" ELSE nodeStatus[n]]
+                ~msg.processed /\ location[msg.target] = N_1 /\ msg.origin = N_2)
     /\ oracle' = [n \in NodeID |-> IF n \notin ExiledNodes \union nodes 
                                    THEN [oracle[n] EXCEPT !.exiled = @ \union nodes]
                                    ELSE oracle[n]]
     /\ UNCHANGED <<snapshots,oracleSnapshots,location>>
 
 OracleSnapshot(node) ==
+    /\ (oracleSnapshots[node].exiled # oracle[node].exiled \/ 
+        oracleSnapshots[node].dropped # oracle[node].dropped)
     /\ oracleSnapshots' = [oracleSnapshots EXCEPT ![node] = oracle[node]]
-    /\ UNCHANGED <<actors,msgs,snapshots,oracle,location,nodeStatus>>
+    /\ UNCHANGED <<actors,msgs,snapshots,oracle,location>>
 
 (*
 DropOracle(a, droppedMsgs) ==
@@ -170,9 +149,9 @@ Next ==
         \* NEW: Actors are spawned onto a specific (non-exiled) node.
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
     \/ \E a \in BusyActors: \E b \in acqs(a) \ ExiledActors: \E refs \in SUBSET acqs(a): 
-        Send(a,b,[origin |-> location[a], target |-> b, refs |-> refs])
+        Send(a,b,[origin |-> location[a], processed |-> FALSE, target |-> b, refs |-> refs])
         \* NEW: Messages are tagged with node locations and cannot be sent to faulty actors.
-    \/ \E a \in IdleActors: \E m \in msgsTo(a): Receive(a,m)
+    \/ \E a \in IdleActors: \E m \in deliverableMsgsTo(a): Receive(a,m)
     \/ \E a \in IdleActors \union BusyActors \union CrashedActors: Snapshot(a)
         \* NB: Exiled actors do not take snapshots.
     \/ \E a \in BusyActors: Crash(a)
@@ -185,6 +164,7 @@ Next ==
     \/ \E m \in BagToSet(msgs): Drop(m)
     \/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
     \/ \E node \in NonExiledNodes: OracleSnapshot(node)
+    \/ \E m \in ProcessableMsgs: Process(m)
     (*
     \/ \E a \in NonFaultyActors: 
        \E droppedMsgs \in SubBag(droppedMsgsTo(a)): 
@@ -233,6 +213,82 @@ Quiescent ==
 -----------------------------------------------------------------------------
 (* APPARENT GARBAGE *)
 
+LargestSubset(D, F) == 
+    D \ CHOOSE S \in SUBSET D: ~F(S)
+
+(* A set of nodes S is apparently exiled if every node aside from S has
+   taken an oracle snapshot and the oracle snapshots were all taken after
+   S was exiled. *)
+ApparentlyExiledNodes == 
+    LargestSubset(ExiledNodes, LAMBDA S:
+        /\ (NodeID \ S) \subseteq pdom(oracleSnapshots)
+        /\ \A node \in NodeID \ S : S \subseteq oracleSnapshots[node].exiled
+    )
+ApparentlyExiledActors == { a \in pdom(actors) : location[a] \in ApparentlyExiledNodes }
+
+(* The bag of messages that have been sent to `a' from `nodes' and were dropped. *)
+apparentDroppedMsgsTo ==
+    BagUnion({ droppedMessages(n1,n2) : 
+        n1 \in ApparentlyExiledNodes, n2 \in NodeID \ ApparentlyExiledNodes })
+
+apparentDeliveredMsgs ==
+    BagUnion({ deliveredMessages(n1,n2) : 
+        n1 \in ApparentlyExiledNodes, n2 \in NodeID \ ApparentlyExiledNodes })
+
+effectivelyCreatedRefs ==
+    {}
+
+
+(* The bag of messages that have been delivered to `a' from apparently exiled nodes. *)
+effectivelyDeliveredMsgsTo(a) == 
+    selectWhere(oracleSnapshots[location[a]].delivered, 
+                LAMBDA m: m.target = a /\ m.origin \in ApparentlyExiledNodes)
+
+(* The bag of actors on `nodes' that have received references to `a' from 
+   nodes that are apparently exiled. Each instance of an actor in the bag 
+   corresponds to one reference to `a'. *)
+effectivelyDeliveredRefsTo(a) == 
+    LET B1(a, n) == selectWhere(oracleSnapshots[n].delivered, 
+                                LAMBDA msg: a \in msg.refs /\ msg.origin \in ApparentlyExiledNodes) IN
+        \* B1(a, n) is the bag of messages delivered to node n that contain a reference to `a'.
+    LET B2(a, n) == BagOfAll(LAMBDA msg: msg.target, B1(a, n)) IN 
+        \* B2(a, n) is the bag of actors on node n that have received references to `a'.
+    BagUnion({ B2(a,n) : n \in NodeID \ ApparentlyExiledNodes})
+
+AppearsCrashed == M!AppearsCrashed
+AppearsFaulty == M!AppearsCrashed \union ExiledActors \* Nodes have common knowledge about exiled actors.
+AppearsReceptionist == M!AppearsReceptionist
+appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
+
+(* We now use snapshots from both actors and oracles to compute effective message counts and 
+   potential references. *)
+
+effectiveCreatedCount == 
+    BagUnion({ snapshots[c].created : c \in pdom(snapshots) \ ApparentlyExiledActors }) (+)
+    deliveredRefsFromExiledNodes
+effectiveDeactivatedCount == 
+    [ <<a,b>> \in ... |-> snapshots[a].deactivated[b] ] (+)
+    createdRefsForExiledNodes
+    \* Refs from exiled actors are all deactivated
+effectiveSendCount == 
+    sum([ a \in pdom(snapshots) \ ApparentlyExiledActors |-> snapshots[a].sendCount[b]]) +
+    BagCardinality(effectivelyDeliveredMsgsTo(b))
+
+(* `b' is an effective historical inverse acquaintance of `c' if... *)
+historicalIAcqs(c) == { b \in ActorName : effectiveCreatedCount[b, c] > 0 }
+apparentIAcqs(c)   == { b \in ActorName : effectiveCreatedCount[b, c] > effectiveDeactivatedCount[b, c] }
+    \* TODO We can ignore exiled actors if we have sufficient oracle snapshots
+
+(* If an exiled actor `a' is historically potentially acquainted with `b', then
+   `b' is only closed if we have sufficient oracle snapshots. *)
+AppearsClosed  == { b \in pdom(snapshots) : effectiveHistoricalIAcqs(b) \subseteq pdom(snapshots) }
+AppearsBlocked == { b \in AppearsIdle \cap AppearsClosed : countSentTo(b) = countReceived(b) }
+
+AppearsBlocked == ???
+AppearsUnblocked == NonExiledActors \ AppearsBlocked 
+apparentIAcqs(b) == ???
+
+
 appearsPotentiallyUnblockedUpToAFault(S) == 
     /\ pdom(snapshots) \ (AppearsClosed \union AppearsCrashed) \subseteq S
     /\ AppearsReceptionist \ AppearsCrashed \subseteq S \* NEW: Exiled actors still appear potentially unblocked
@@ -261,24 +317,15 @@ AppearsQuiescent ==
 -----------------------------------------------------------------------------
 (* SOUNDNESS AND COMPLETENESS PROPERTIES *)
 
+\* TODO: Check that quiescence actually means the actor never becomes busy.
+
 SoundnessUpToAFault == 
     AppearsQuiescentUpToAFault \subseteq NonExiledActors => 
     AppearsQuiescentUpToAFault \subseteq QuiescentUpToAFault
 
 Soundness == AppearsQuiescent \subseteq Quiescent
 
-(* NEW: A snapshot is up to date if all fields except `exiled' agree the actor's
-   current state. *)
-SnapshotUpToDate(a) ==
-    /\ a \in pdom(snapshots)
-    /\ actors[a].status = snapshots[a].status
-    /\ actors[a].recvCount = snapshots[a].recvCount
-    /\ actors[a].sendCount = snapshots[a].sendCount
-    /\ actors[a].active = snapshots[a].active
-    /\ actors[a].deactivated = snapshots[a].deactivated
-    /\ actors[a].created = snapshots[a].created
-    /\ actors[a].monitored = snapshots[a].monitored
-    /\ actors[a].isReceptionist = snapshots[a].isReceptionist
+SnapshotUpToDate(a) == M!SnapshotUpToDate(a)
 RecentEnough(a,b) == M!RecentEnough(a,b)
 
 SnapshotsInsufficient == 
