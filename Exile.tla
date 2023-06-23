@@ -65,6 +65,13 @@ ShunnedBy(N_2) == { N_1 \in NodeID : ingress[N_1,N_2].shunned }
 NotShunnedBy(N_1) == NodeID \ ShunnedBy(N_1)
 NeitherShuns(N_1) == { N_2 \in NodeID : ~ingress[N_1, N_2].shunned /\ ~ingress[N_2, N_1].shunned }
 
+(* A faction of nodes G is exiled if every node outside of G has shunned 
+   every node in G. *)
+ExiledNodes == 
+    LargestSubset(NodeID, LAMBDA G:
+        \A N_1 \in G, N_2 \in NodeID \ G : ingress[N_1,N_2].shunned
+    )
+
 (* A message must be admitted before being delivered. *)
 deliverableMsgsTo(a) == { a \in msgsTo(a) : a.admitted }
 
@@ -120,14 +127,17 @@ Drop(m) ==
 
 Shun(N_1, N_2) ==
     /\ ingress' = [ingress EXCEPT ![N_1,N_2].shunned = TRUE]
-    /\ UNCHANGED <<actors,msgs,snapshots,ingressSnapshots,location>>
+    /\ actors' = [actors EXCEPT ![a].status = IF location[a] \in ExiledNodes THEN "exiled" else @]
+        \* If the node has become exiled, then all its actors are marked as such.
+    /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
 
 (* To reduce the model checking state space, the `Shun' rule can be replaced with the following `Exile'
    rule. This is safe because, for any execution in which a faction G_1 all shuns another faction G_2,
    there is an equivalent execution in which all `Shun' events happen successively.  *)
 Exile(G_1, G_2) ==
     /\ ingress' = [ingress EXCEPT ![N_1,N_2].shunned = @ \/ (N_1 \in G_1 /\ N_2 \in G_2)]
-    /\ UNCHANGED <<actors,msgs,snapshots,ingressSnapshots,location>>
+    /\ actors' = [actors EXCEPT ![a].status = IF location[a] \in ExiledNodes THEN "exiled" else @]
+    /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
 
 IngressSnapshot(N_1, N_2) ==
     /\ ingressSnapshots' = [ingressSnapshots EXCEPT ![N_1,N_2] = ingress[N_1,N_2]]
@@ -240,9 +250,6 @@ Quiescent ==
 
 -----------------------------------------------------------------------------
 (* APPARENT GARBAGE *)
-
-LargestSubset(D, F) == 
-    D \ CHOOSE S \in SUBSET D: ~F(S)
 
 (* A set of nodes S is apparently exiled if every node aside from S has
    taken an ingress snapshot and the ingress snapshots were all taken after
