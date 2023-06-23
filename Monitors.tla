@@ -1,5 +1,5 @@
 ---- MODULE Monitors ----
-(* This model extends the Dynamic model with receptionists and monitoring.  *)
+(* This model extends the Dynamic model with roots and monitoring.  *)
 EXTENDS Common, Integers, FiniteSets, Bags, TLC
 
 (* Operators from the Dynamic model are imported within the `D' namespace. *)
@@ -13,7 +13,7 @@ ActorState == [
     deactivated : [ActorName -> Nat],
     created     : [ActorName \X ActorName -> Nat],
     monitored   : SUBSET ActorName, \* NEW: The set of actors monitored by this one.
-    isReceptionist : BOOLEAN        \* NEW: Indicates whether this actor is a receptionist.
+    isRoot      : BOOLEAN           \* NEW: Indicates whether this actor is a root.
 ]
 
 TypeOK == 
@@ -24,13 +24,13 @@ TypeOK ==
 InitialActorState ==
     D!InitialActorState @@ [
         monitored |-> {},
-        isReceptionist |-> FALSE
+        isRoot |-> FALSE
     ]
 
 monitoredBy(b) == actors[b].monitored
  
 InitialConfiguration(actor, actorState) ==   
-    D!InitialConfiguration(actor, [actorState EXCEPT !.isReceptionist = TRUE])
+    D!InitialConfiguration(actor, [actorState EXCEPT !.isRoot = TRUE])
 
 Idle(a)          == D!Idle(a)
 Deactivate(a,b)  == D!Deactivate(a,b)
@@ -53,7 +53,7 @@ Notify(a,b) ==
     /\ UNCHANGED <<msgs,snapshots>>
 
 Register(a) ==
-    /\ actors' = [actors EXCEPT ![a].isReceptionist = TRUE]
+    /\ actors' = [actors EXCEPT ![a].isRoot = TRUE]
     /\ UNCHANGED <<msgs,snapshots>>
 
 Wakeup(a) ==
@@ -61,7 +61,7 @@ Wakeup(a) ==
     /\ UNCHANGED <<msgs,snapshots>>
 
 Unregister(a) ==
-    /\ actors' = [actors EXCEPT ![a].isReceptionist = FALSE]
+    /\ actors' = [actors EXCEPT ![a].isRoot = FALSE]
     /\ UNCHANGED <<msgs,snapshots>>
 
 Init == 
@@ -79,21 +79,21 @@ Next ==
     \/ \E a \in BusyActors: Crash(a)
     \/ \E a \in BusyActors: \E b \in acqs(a): Monitor(a,b)
     \/ \E a \in IdleActors: \E b \in CrashedActors \intersect monitoredBy(a): Notify(a,b)
-    \/ \E a \in BusyActors \ Receptionists: Register(a)
-    \/ \E a \in IdleActors \intersect Receptionists : Wakeup(a)
-    \/ \E a \in BusyActors \intersect Receptionists : Unregister(a)
+    \/ \E a \in BusyActors \ Roots: Register(a)
+    \/ \E a \in IdleActors \intersect Roots : Wakeup(a)
+    \/ \E a \in BusyActors \intersect Roots : Unregister(a)
 
 
 -----------------------------------------------------------------------------
 
 (*
-Non-crashed receptionists and unblocked actors are not garbage.
+Non-crashed roots and unblocked actors are not garbage.
 Non-crashed actors that are potentially reachable by non-garbage are not garbage.
 Non-crashed actors that monitor actors that can crash or have crashed are not garbage.
  *)
 PotentiallyUnblocked ==
     CHOOSE S \in SUBSET pdom(actors) :
-    /\ (Receptionists \union Unblocked) \ CrashedActors \subseteq S
+    /\ (Roots \union Unblocked) \ CrashedActors \subseteq S
     /\ \A a \in pdom(actors), b \in pdom(actors) \ CrashedActors :
         /\ (a \in S \intersect piacqs(b) => b \in S)
         /\ (a \in (S \union CrashedActors) \intersect monitoredBy(b) => b \in S)
@@ -103,7 +103,7 @@ Quiescent == pdom(actors) \ PotentiallyUnblocked
 AppearsUnblocked == D!AppearsUnblocked
 apparentIAcqs(b) == D!apparentIAcqs(b)
 appearsMonitoredBy(a) == snapshots[a].monitored
-AppearsReceptionist == { a \in pdom(snapshots) : snapshots[a].isReceptionist }
+AppearsRoot == { a \in pdom(snapshots) : snapshots[a].isRoot }
 AppearsCrashed == { a \in pdom(snapshots) : snapshots[a].status = "crashed" }
 AppearsClosed == D!AppearsClosed \intersect 
                  { b \in pdom(snapshots) : appearsMonitoredBy(b) \subseteq pdom(snapshots) }
@@ -116,7 +116,7 @@ have not taken a snapshot, then A should be marked as potentially unblocked for 
 AppearsPotentiallyUnblocked == 
     CHOOSE S \in SUBSET pdom(snapshots) :
     /\ pdom(snapshots) \ (AppearsClosed \union AppearsCrashed) \subseteq S
-    /\ (AppearsReceptionist \union AppearsUnblocked) \ AppearsCrashed \subseteq S
+    /\ (AppearsRoot \union AppearsUnblocked) \ AppearsCrashed \subseteq S
     /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsCrashed :
         /\ (a \in S \intersect apparentIAcqs(b) => b \in S)
         /\ (a \in (S \union AppearsCrashed) \intersect appearsMonitoredBy(b) => b \in S)

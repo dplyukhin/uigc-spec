@@ -23,7 +23,16 @@ Message == [origin: NodeID, admitted: BOOLEAN, target: ActorName, refs : SUBSET 
 
 MessagesTo(node) == { m \in Message : location[m.target] = node }
 
-ActorState == M!ActorState
+ActorState == [
+    status      : {"busy", "idle", "crashed", "exiled"}, \* NEW: Actors may become "exiled".
+    recvCount   : Nat,
+    sendCount   : [ActorName -> Nat],
+    active      : [ActorName -> Nat],
+    deactivated : [ActorName -> Nat],
+    created     : [ActorName \X ActorName -> Nat],
+    monitored   : SUBSET ActorName,
+    isRoot      : BOOLEAN
+]
 
 IngressState == [
     shunned      : BOOLEAN,
@@ -195,9 +204,9 @@ Next ==
     \/ \E a \in BusyActors: \E b \in acqs(a): Monitor(a,b)
     \/ \E a \in IdleActors: \E b \in FaultyActors \intersect M!monitoredBy(a): Notify(a,b)
         \* NEW: Actors are notified when monitored actors are exiled.
-    \/ \E a \in BusyActors \ Receptionists: Register(a)
-    \/ \E a \in IdleActors \intersect Receptionists: Wakeup(a)
-    \/ \E a \in BusyActors \intersect Receptionists: Unregister(a)
+    \/ \E a \in BusyActors \ Roots: Register(a)
+    \/ \E a \in IdleActors \intersect Roots: Wakeup(a)
+    \/ \E a \in BusyActors \intersect Roots: Unregister(a)
     \/ \E m \in BagToSet(msgs): Drop(m)
     \/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
     \/ \E node \in NonExiledNodes: ingress[N_1,N_2] # ingressSnapshots[N_1,N_2] /\ IngressSnapshot(node)
@@ -222,7 +231,7 @@ Next ==
 monitoredBy(b) == M!monitoredBy(b)
 
 isPotentiallyUnblockedUpToAFault(S) ==
-    /\ Receptionists \ FaultyActors \subseteq S
+    /\ Roots \ FaultyActors \subseteq S
     /\ Unblocked \ FaultyActors \subseteq S
     /\ \A a \in pdom(actors), b \in pdom(actors) \ FaultyActors :
         /\ (a \in S \intersect piacqs(b) => b \in S)
@@ -292,7 +301,7 @@ effectivelyDeliveredRefsTo(a) ==
 
 AppearsCrashed == M!AppearsCrashed
 AppearsFaulty == M!AppearsCrashed \union ExiledActors \* Nodes have common knowledge about exiled actors.
-AppearsReceptionist == M!AppearsReceptionist
+AppearsRoot == M!AppearsRoot
 appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
 
 (* We now use snapshots from both actors and ingresss to compute effective message counts and 
@@ -326,7 +335,7 @@ apparentIAcqs(b) == ???
 
 appearsPotentiallyUnblockedUpToAFault(S) == 
     /\ pdom(snapshots) \ (AppearsClosed \union AppearsCrashed) \subseteq S
-    /\ AppearsReceptionist \ AppearsCrashed \subseteq S \* NEW: Exiled actors still appear potentially unblocked
+    /\ AppearsRoot \ AppearsCrashed \subseteq S \* NEW: Exiled actors still appear potentially unblocked
     /\ AppearsUnblocked \ AppearsCrashed \subseteq S
     /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsCrashed :
         /\ (a \in S \intersect apparentIAcqs(b) => b \in S)
