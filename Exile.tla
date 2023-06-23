@@ -25,6 +25,7 @@ MessagesTo(node) == { m \in Message : location[m.target] = node }
 
 ActorState == [
     status      : {"busy", "idle", "crashed", "exiled"}, \* NEW: Actors may become "exiled".
+        \* Exiled actors are like crashed actors, except they cannot take snapshots.
     recvCount   : Nat,
     sendCount   : [ActorName -> Nat],
     active      : [ActorName -> Nat],
@@ -49,7 +50,7 @@ TypeOK ==
   /\ location         \in [ActorName -> NodeID \cup {null}] \* NEW
   /\ ingress          \in [NodeID \X NodeID -> IngressState] \* NEW
   /\ ingressSnapshots \in [NodeID \X NodeID -> IngressState \cup {null}] \* NEW
-  /\ \A a \in pdom(actors): location[a] # null \* Every actor has a location upon being spawned
+  /\ \A a \in Actors: location[a] # null \* Every actor has a location upon being spawned.
 
 InitialActorState == M!InitialActorState
 
@@ -80,6 +81,8 @@ ExiledNodes ==
     LargestSubset(NodeID, LAMBDA G:
         \A N_1 \in G, N_2 \in NodeID \ G : ingress[N_1,N_2].shunned
     )
+ExiledActors == { a \in Actors : actors[a].status = "exiled" }
+FaultyActors == CrashedActors \union ExiledActors
 
 (* A message must be admitted before being delivered. *)
 deliverableMsgsTo(a) == { a \in msgsTo(a) : a.admitted }
@@ -191,7 +194,7 @@ Next ==
     \/ \E a \in BusyActors: Idle(a)
     \/ \E a \in BusyActors: \E b \in FreshActorName: \E N \in NeitherShuns(location[a]):
        Spawn(a,b,InitialActorState,N)
-        \* NEW: Actors are spawned onto a specific (non-exiled) node.
+        \* NEW: Actors are spawned onto a specific (non-shunned) node.
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
     \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
         Send(a,b,[origin |-> location[a], admitted |-> location[b] = location[a], 
@@ -207,18 +210,13 @@ Next ==
     \/ \E a \in BusyActors \ Roots: Register(a)
     \/ \E a \in IdleActors \intersect Roots: Wakeup(a)
     \/ \E a \in BusyActors \intersect Roots: Unregister(a)
-    \/ \E m \in BagToSet(msgs): Drop(m)
-    \/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
-    \/ \E node \in NonExiledNodes: ingress[N_1,N_2] # ingressSnapshots[N_1,N_2] /\ IngressSnapshot(node)
-        \* NEW: Ingress actors can take snapshots. No need to take snapshots that have no effect.
-    \/ \E m \in AdmissibleMsgs: Admit(m)
-    (*
-    \/ \E a \in NonFaultyActors: 
-       \E droppedMsgs \in SubBag(droppedMsgsTo(a)): 
-       DropOracle(a,droppedMsgs)
-    \/ \E a \in NonFaultyActors: 
-       \E exiledNodes \in SUBSET (ExiledNodes \ actors[a].exiled): 
-       ExileOracle(a, exiledNodes *)
+    \/ \E m \in AdmissibleMsgs: Admit(m) \* NEW: Any admissible message can be admitted.
+    \/ \E m \in BagToSet(msgs): Drop(m)  \* NEW: Any message can be dropped.
+    \/ \E N_2 \in NodeID: \E N_1 \in NotShunnedBy(N_2): Shun(N_1,N_2) \* NEW: Nodes can shun other nodes.
+    \* \/ \E G \in SUBSET NonExiledNodes: Exile(G)
+    \/ \E N_1 \in NodeID: \E N_2 \in NonExiledNodes: ingress[N_1,N_2] # ingressSnapshots[N_1,N_2] /\ IngressSnapshot(node)
+        \* NEW: Ingress actors can take snapshots if they have not been exiled. 
+        \* To reduce the TLA+ search space, actors do not take snapshots that have no effect.
 
 -----------------------------------------------------------------------------
 (* ACTUAL GARBAGE *)
@@ -233,14 +231,14 @@ monitoredBy(b) == M!monitoredBy(b)
 isPotentiallyUnblockedUpToAFault(S) ==
     /\ Roots \ FaultyActors \subseteq S
     /\ Unblocked \ FaultyActors \subseteq S
-    /\ \A a \in pdom(actors), b \in pdom(actors) \ FaultyActors :
+    /\ \A a \in Actors, b \in Actors \ FaultyActors :
         /\ (a \in S \intersect piacqs(b) => b \in S)
         /\ (a \in (S \union FaultyActors) \intersect monitoredBy(b) => b \in S)
             \* NEW: An actor is not garbage if it monitors an exiled actor
 
 isPotentiallyUnblocked(S) ==
     /\ isPotentiallyUnblockedUpToAFault(S)
-    /\ \A a \in pdom(actors), b \in pdom(actors) \ FaultyActors :
+    /\ \A a \in Actors, b \in Actors \ FaultyActors :
         /\ (a \in monitoredBy(b) /\ location[a] # location[b] => b \in S)
             \* NEW: Actors that monitor remote actors are not garbage
 
@@ -248,14 +246,14 @@ isPotentiallyUnblocked(S) ==
    unblocked. Likewise for quiescence up-to-a-fault. *)
 
 PotentiallyUnblockedUpToAFault == 
-    CHOOSE S \in SUBSET pdom(actors) \ FaultyActors : isPotentiallyUnblockedUpToAFault(S)
+    CHOOSE S \in SUBSET Actors \ FaultyActors : isPotentiallyUnblockedUpToAFault(S)
 QuiescentUpToAFault == 
-    (pdom(actors) \ ExiledActors) \ PotentiallyUnblockedUpToAFault
+    (Actors \ ExiledActors) \ PotentiallyUnblockedUpToAFault
 
 PotentiallyUnblocked == 
-    CHOOSE S \in SUBSET pdom(actors) \ FaultyActors : isPotentiallyUnblocked(S)
+    CHOOSE S \in SUBSET Actors \ FaultyActors : isPotentiallyUnblocked(S)
 Quiescent == 
-    (pdom(actors) \ ExiledActors) \ PotentiallyUnblocked
+    (Actors \ ExiledActors) \ PotentiallyUnblocked
 
 -----------------------------------------------------------------------------
 (* APPARENT GARBAGE *)
@@ -268,7 +266,7 @@ ApparentlyExiledNodes ==
         /\ (NodeID \ S) \subseteq pdom(ingressSnapshots)
         /\ \A node \in NodeID \ S : S \subseteq ingressSnapshots[node].exiled
     )
-ApparentlyExiledActors == { a \in pdom(actors) : location[a] \in ApparentlyExiledNodes }
+ApparentlyExiledActors == { a \in Actors : location[a] \in ApparentlyExiledNodes }
 
 (* The bag of messages that have been sent to `a' from `nodes' and were dropped. *)
 apparentDroppedMsgsTo ==
@@ -386,7 +384,7 @@ SnapshotsInsufficient ==
         /\ (a \in S /\ a \in piacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
 
-SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
+SnapshotsSufficient == Actors \ SnapshotsInsufficient
 
 CompletenessUpToAFault == 
     (QuiescentUpToAFault \intersect SnapshotsSufficient) \subseteq AppearsQuiescentUpToAFault
@@ -412,7 +410,7 @@ GarbageIsDetected == ~(AppearsQuiescent = {})
 (* This invariant fails, showing that quiescent actors can have crashed inverse
    acquaintances. *)
 ExiledGarbageIsDetected == 
-  ~(\E a,b \in pdom(actors): a # b /\ a \in ExiledActors /\ b \in AppearsQuiescent /\ 
+  ~(\E a,b \in Actors: a # b /\ a \in ExiledActors /\ b \in AppearsQuiescent /\ 
     a \in iacqs(b))
 
 (* This invariant fails, showing that "quiescence up to a fault" is a strict 
