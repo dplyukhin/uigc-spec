@@ -122,20 +122,20 @@ Admit(m) ==
     /\ msgs' = replace(msgs, m, [m EXCEPT !.admitted = TRUE])
     /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
-(* If a message is in flight, then it is added to the ingress's bag of dropped messages. 
-   If the message has been admitted, the ingress moves the message from its bag of sent messages 
-   to its bag of dropped messages. *)
+(* If an admitted message is dropped, then it is added to the ingress's bag of dropped messages. 
+   If the ingress actor learns that a non-admitted message has been dropped, then the message is
+   added both to the sent bag and the dropped bag. *)
 Drop(m) == 
     LET N_1 == m.origin 
         N_2 == location[m.target]
         B   == [ b,c \in {m.target} \X m.refs |-> 1 ]
     IN
     /\ msgs' = remove(msgs, m)
-    /\ IF ~m.admitted THEN 
+    /\ IF m.admitted THEN 
            ingress' = [ingress EXCEPT ![N_1,N_2].droppedCount = @ + 1, ![N_1,N_2].droppedRefs = @ ++ B]
        ELSE
            ingress' = [ingress EXCEPT ![N_1,N_2].droppedCount = @ + 1, ![N_1,N_2].droppedRefs = @ ++ B,
-                                      ![N_1,N_2].sendCount    = @ - 1, ![N_1,N_2].sentRefs    = @ -- B]
+                                      ![N_1,N_2].sendCount    = @ + 1, ![N_1,N_2].sentRefs    = @ + B]
     /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
 Shun(N_1, N_2) ==
@@ -229,11 +229,10 @@ Quiescent == Actors \ PotentiallyUnblocked
 (* APPARENT GARBAGE *)
 
 (* A faction of nodes G is apparently exiled if every node outside of G has
-   taken an ingress snapshot and every node in G is shunned in those snapshots. *)
+   taken an ingress snapshot in which every node of G is shunned. *)
 ApparentlyExiledNodes == 
     LargestSubset(ExiledNodes, LAMBDA G:
         \A N_1 \in G, N_2 \in NodeID \ G : 
-            ingressSnapshots[N_1,N_2] # null /\
             ingressSnapshots[N_1,N_2].shunned
     )
 ApparentlyExiledActors == { a \in Actors : location[a] \in ApparentlyExiledNodes }
@@ -243,13 +242,11 @@ AppearsFaulty == M!AppearsCrashed \union ApparentlyExiledActors
 AppearsRoot == M!AppearsRoot
 appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
 
-
 (* The effective created count is the sum of (a) the created counts recorded by non-exiled actors
    and (b) the created counts recorded by ingress actors for exiled nodes. *)
 effectiveCreatedCount(a, b) == 
     sum([ c \in Snapshots \ ApparentlyExiledActors |-> snapshots[c].created[a, b]]) +
     sum([ N_1 \in ApparentlyExiledNodes, N_2 \in NodeID \ ApparentlyExiledNodes |-> ingressSnapshots[N_1, N_2].created[a, b] ])
-    \* TODO WHAT IF A IS EXILED
 
 (* Once an actor `a' is exiled, all its references are effectively deactivated. Thus the effective 
    deactivated count is equal to the effective created count. 
@@ -261,9 +258,8 @@ effectiveDeactivatedCount(a, b) ==
     IF a \in ApparentlyExiledActors THEN 
         effectiveCreatedCount(a, b) 
     ELSE 
-        (IF a \in Snapshots THEN snapshots[a].deactivated[b] + ELSE 0) +
-        sum([ N_1 \in NodeID |-> ingressSnapshots[N, location[a]].droppedRefs[a, b] ])
-        \* What happens IF I SEND A REF TO AN EXILED ACTOR? 
+        (IF a \in Snapshots THEN snapshots[a].deactivated[b] ELSE 0) +
+        sum([ N \in NodeID |-> ingressSnapshots[N, location[a]].droppedRefs[a, b] ])
 
 (* Once an actor `a' is exiled, the number of messages that `a' effectively sent to some `b'
    is equal to the number of messages admitted by the ingress actor at `b''s node. Thus the
@@ -279,17 +275,6 @@ effectiveSendCount(b) ==
 effectiveReceiveCount(b) == 
     (IF b \in Snapshots THEN snapshots[b].recvCount ELSE 0) +
     sum([ N \in NodeID |-> ingressSnapshots[N, location[b]].droppedCount[b] ])
-
-effectiveCreatedCount == 
-    sum({ snapshots[c].created : c \in pdom(snapshots) \ ApparentlyExiledActors }) (+)
-    deliveredRefsFromExiledNodes
-effectiveDeactivatedCount == 
-    [ <<a,b>> \in ... |-> snapshots[a].deactivated[b] ] (+)
-    createdRefsForExiledNodes
-    \* Refs from exiled actors are all deactivated
-effectiveSendCount == 
-    sum([ a \in pdom(snapshots) \ ApparentlyExiledActors |-> snapshots[a].sendCount[b]]) +
-    BagCardinality(effectivelyDeliveredMsgsTo(b))
 
 (* `b' is an effective historical inverse acquaintance of `c' if... *)
 historicalIAcqs(c) == { b \in ActorName : effectiveCreatedCount[b, c] > 0 }
