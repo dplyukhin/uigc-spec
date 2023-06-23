@@ -225,6 +225,12 @@ PotentiallyUnblocked ==
     CHOOSE S \in SUBSET NonFaultyActors : isPotentiallyUnblocked(S)
 Quiescent == Actors \ PotentiallyUnblocked
 
+(* Both definitions characterize a subset of the idle actors. The difference between the
+   definitions is that quiescence up-to-a-fault is only a stable property in non-faulty
+   executions. *)
+QuiescentImpliesIdle == Quiescent \subseteq IdleActors
+QuiescentUpToAFaultImpliesIdle == QuiescentUpToAFault \subseteq IdleActors
+
 -----------------------------------------------------------------------------
 (* APPARENT GARBAGE *)
 
@@ -236,6 +242,7 @@ ApparentlyExiledNodes ==
             ingressSnapshots[N_1,N_2].shunned
     )
 ApparentlyExiledActors == { a \in Actors : location[a] \in ApparentlyExiledNodes }
+NonExiledSnapshots == Snapshots \ ApparentlyExiledActors
 
 AppearsCrashed == M!AppearsCrashed
 AppearsFaulty == M!AppearsCrashed \union ApparentlyExiledActors
@@ -245,7 +252,7 @@ appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
 (* The effective created count is the sum of (a) the created counts recorded by non-exiled actors
    and (b) the created counts recorded by ingress actors for exiled nodes. *)
 effectiveCreatedCount(a, b) == 
-    sum([ c \in Snapshots \ ApparentlyExiledActors |-> snapshots[c].created[a, b]]) +
+    sum([ c \in NonExiledSnapshots |-> snapshots[c].created[a, b]]) +
     sum([ N_1 \in ApparentlyExiledNodes, N_2 \in NodeID \ ApparentlyExiledNodes |-> ingressSnapshots[N_1, N_2].created[a, b] ])
 
 (* Once an actor `a' is exiled, all its references are effectively deactivated. Thus the effective 
@@ -266,7 +273,7 @@ effectiveDeactivatedCount(a, b) ==
    effective total send count for `b' is the sum of the send counts from non-exiled actors
    and the number of messages for `b' that entered the ingress actor from apparently exiled nodes. *)
 effectiveSendCount(b) == 
-    sum([ a \in Snapshots \ ApparentlyExiledActors |-> snapshots[a].sendCount[b]]) +
+    sum([ a \in NonExiledSnapshots |-> snapshots[a].sendCount[b]]) +
     sum([ N_1 \in ApparentlyExiledNodes |-> ingressSnapshots[N_1, location[b]].sendCount[b] ])
 
 (* All messages to actor `b' that were dropped are effectively received. Thus an actor's
@@ -276,45 +283,42 @@ effectiveReceiveCount(b) ==
     (IF b \in Snapshots THEN snapshots[b].recvCount ELSE 0) +
     sum([ N \in NodeID |-> ingressSnapshots[N, location[b]].droppedCount[b] ])
 
-(* `b' is an effective historical inverse acquaintance of `c' if... *)
-historicalIAcqs(c) == { b \in ActorName : effectiveCreatedCount[b, c] > 0 }
-apparentIAcqs(c)   == { b \in ActorName : effectiveCreatedCount[b, c] > effectiveDeactivatedCount[b, c] }
-    \* TODO We can ignore exiled actors if we have sufficient ingress snapshots
+(* NEW: Historical and apparent acquaintances now incorporate ingress snapshot information. 
+   Once an actor appears exiled, it is no longer considered a historical or potential inverse
+   acquaintance. *)
+historicalIAcqs(c) == { b \in ActorName : effectiveCreatedCount(b, c) > 0 }
+apparentIAcqs(c)   == { b \in ActorName : effectiveCreatedCount(b, c) > effectiveDeactivatedCount(b, c) }
 
-(* If an exiled actor `a' is historically potentially acquainted with `b', then
-   `b' is only closed if we have sufficient ingress snapshots. *)
-AppearsClosed  == { b \in pdom(snapshots) : effectiveHistoricalIAcqs(b) \subseteq pdom(snapshots) }
-AppearsBlocked == { b \in AppearsIdle \cap AppearsClosed : countSentTo(b) = countReceived(b) }
-
-AppearsBlocked == ???
-AppearsUnblocked == NonExiledActors \ AppearsBlocked 
-apparentIAcqs(b) == ???
-
+AppearsIdle      == { a \in NonExiledSnapshots : snapshots[a].status = "idle" }
+AppearsClosed    == { b \in NonExiledSnapshots : historicalIAcqs(b) \subseteq Snapshots }
+AppearsBlocked   == { b \in AppearsIdle \cap AppearsClosed : effectiveSendCount(b) = effectiveReceiveCount(b) }
+AppearsUnblocked == NonExiledSnapshots \ AppearsBlocked
 
 appearsPotentiallyUnblockedUpToAFault(S) == 
-    /\ pdom(snapshots) \ (AppearsClosed \union AppearsCrashed) \subseteq S
-    /\ AppearsRoot \ AppearsCrashed \subseteq S \* NEW: Exiled actors still appear potentially unblocked
+    /\ Snapshots \ (AppearsClosed \union AppearsCrashed) \subseteq S
+    /\ AppearsRoot \ AppearsCrashed \subseteq S \* NEW: Exiled actors still appear potentially unblocked.
     /\ AppearsUnblocked \ AppearsCrashed \subseteq S
-    /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsCrashed :
+    /\ \A a \in Snapshots, b \in Snapshots \ AppearsCrashed :
         /\ (a \in S \intersect apparentIAcqs(b) => b \in S)
         /\ (a \in (S \union AppearsFaulty) \intersect appearsMonitoredBy(b) => b \in S)
-            \* NEW: An actor is not garbage if it monitors an exiled actor
+            \* NEW: An actor is not garbage if it monitors an exiled actor.
 
 appearsPotentiallyUnblocked(S) == 
     /\ appearsPotentiallyUnblockedUpToAFault(S)
-    /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsCrashed :
+    /\ \A a \in Snapshots, b \in Snapshots \ AppearsCrashed :
         /\ (a \in appearsMonitoredBy(b) /\ location[a] # location[b] => b \in S)
-            \* NEW: Actors that monitor remote actors are not garbage
+            \* NEW: Actors that monitor remote actors are not garbage.
 
 AppearsPotentiallyUnblockedUpToAFault == 
-    CHOOSE S \in SUBSET pdom(snapshots) \ AppearsCrashed : appearsPotentiallyUnblockedUpToAFault(S)
+    CHOOSE S \in SUBSET Snapshots \ AppearsCrashed : appearsPotentiallyUnblockedUpToAFault(S)
 AppearsQuiescentUpToAFault == 
-    (pdom(snapshots) \ ExiledActors) \ AppearsPotentiallyUnblockedUpToAFault
+    (Snapshots \ ExiledActors) \ AppearsPotentiallyUnblockedUpToAFault
 
 AppearsPotentiallyUnblocked == 
-    CHOOSE S \in SUBSET pdom(snapshots) \ AppearsCrashed : appearsPotentiallyUnblocked(S)
+    CHOOSE S \in SUBSET Snapshots \ AppearsCrashed : appearsPotentiallyUnblocked(S)
 AppearsQuiescent == 
-    (pdom(snapshots) \ ExiledActors) \ AppearsPotentiallyUnblocked
+    (Snapshots \ ExiledActors) \ AppearsPotentiallyUnblocked
+
 
 -----------------------------------------------------------------------------
 (* SOUNDNESS AND COMPLETENESS PROPERTIES *)
