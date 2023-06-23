@@ -2,129 +2,132 @@
 (* This model extends the Monitors model with dropped messages and faulty nodes.  *)
 EXTENDS Common, Integers, FiniteSets, Bags, TLC
 
-(* Every node has a unique ID, status, and oracle. Oracles can take snapshots. 
-   Every actor has a fixed location. *)
+(* Every node has a unique ID and every actor is located at some node. 
+   Every pair of nodes has an ingress actor that tracks when messages are dropped 
+   and when messages arrive at a node. Ingress actors can take snapshots. *)
 CONSTANT NodeID
-VARIABLE oracle, oracleSnapshots, location
+VARIABLE location, ingress, ingressSnapshots
 
 (* Import operators from the Monitors model. *)
 M == INSTANCE Monitors
 
-ActorState == M!ActorState
-
-InitialActorState == M!InitialActorState
-
 (* We add two fields to every message. `origin' indicates the node that produced the
-   message and `inMailbox' indicates whether the message has been placed in a mailbox
-   on the destination node. All messages must be placed in a mailbox before delivery. *)
+   message and `inMailbox' indicates whether the message has arrived at the 
+   destination node. All messages must be placed in a mailbox before delivery. *)
 Message == [origin: NodeID, inMailbox: BOOLEAN, target: ActorName, refs : SUBSET ActorName] 
-
------------------------------------------------------------------------------
-(* SET DEFINITIONS *)
-
-ShunnedBy(N_1)    == { N_2 \in NodeID : oracle[N_1,N_2].shunned }
-NotShunnedBy(N_1) == NodeID \ ShunnedBy(N_1)
-
-MessagesTo(node) == { m \in Message : location[m.target] = node }
-(* A message must be placed in a mailbox before being delivered. *)
-deliverableMsgsTo(a) == { a \in msgsTo(a) : a.inMailbox }
-(* A message can enter a mailbox if it is not already in a mailbox and the origin
-   node is not shunned by the destination node. *)
-CanEnterMailbox ==
-    { m \in BagToSet(msgs) : ~m.inMailbox /\ ~oracle[m.origin, location[m.target]].shunned }
-        
-NeitherShuns(N_1, N_2) == ~oracle[N_1, N_2].shunned /\ ~oracle[N_2, N_1].shunned
 
 -----------------------------------------------------------------------------
 (* INITIALIZATION AND BASIC INVARIANTS *)
 
-OracleTypeOK(map) ==
-  (* An oracle tracks the messages that have been dropped or delivered to actors on
-     its node. It also tracks the set of nodes that have been exiled so far. *)
-  /\ DOMAIN map = NodeID
-  /\ \A n \in pdom(map) : 
-    BagToSet(map[n].delivered) \subseteq MessagesTo(n) /\ 
-    BagToSet(map[n].dropped) \subseteq MessagesTo(n) /\
-    map[n].exiled \subseteq ExiledNodes
+MessagesTo(node) == { m \in Message : location[m.target] = node }
+
+ActorState == M!ActorState
+
+IngressState == [
+    shunned      : BOOLEAN,
+    sentCount    : [ActorName -> Nat],
+    sentRefs     : [ActorName \X ActorName -> Nat],
+    droppedCount : [ActorName -> Nat],
+    droppedRefs  : [ActorName \X ActorName -> Nat]
+]
 
 TypeOK == 
-  /\ actors         \in [ActorName -> ActorState \cup {null}]
-  /\ snapshots      \in [ActorName -> ActorState \cup {null}]
-  /\ BagToSet(msgs) \subseteq Message
-  /\ OracleTypeOK(oracle)                           \* Each node has an oracle tracking messages.
-  /\ OracleTypeOK(oracleSnapshots)                  \* Oracles can take snapshots.
-  /\ location \in [ActorName -> NodeID \cup {null}] \* Each actor has a location.
-  /\ \A a \in ActorName : actors[a] # null => location[a] # null
+  /\ actors           \in [ActorName -> ActorState \cup {null}]
+  /\ snapshots        \in [ActorName -> ActorState \cup {null}]
+  /\ BagToSet(msgs)   \subseteq Message
+  /\ location         \in [ActorName -> NodeID \cup {null}] \* NEW
+  /\ ingress          \in [NodeID \X NodeID -> IngressState] \* NEW
+  /\ ingressSnapshots \in [NodeID \X NodeID -> IngressState \cup {null}] \* NEW
+  /\ \A a \in pdom(actors): location[a] # null \* Every actor has a location upon being spawned
 
-InitialConfiguration(actor, node, actorState) == 
-    /\ M!InitialConfiguration(actor, actorState)
-    /\ oracle = 
+InitialActorState == M!InitialActorState
+
+InitialConfiguration(initialActor, node, actorState) == 
+    /\ M!InitialConfiguration(initialActor, actorState)
+    /\ ingress = 
         [N_1, N_2 \in NodeID |->
-            [sentCount    |-> [a \in ActorName |-> 0],
+            [shunned      |-> FALSE,
+             sentCount    |-> [a \in ActorName |-> 0],
              sentRefs     |-> [a,b \in ActorName |-> 0]
              droppedCount |-> [a \in ActorName |-> 0],
-             droppedRefs  |-> [a,b \in ActorName |-> 0],
-             shunned      |-> {}
+             droppedRefs  |-> [a,b \in ActorName |-> 0]
             ]
         ]
-    /\ oracleSnapshots = [N_1, N_2 \in NodeID |-> null]
-    /\ location        = [a \in ActorName |-> IF a = actor THEN node ELSE null]
+    /\ ingressSnapshots = [N_1, N_2 \in NodeID |-> null]
+    /\ location = [a \in ActorName |-> null] ++ (initialActor :> node)
+
+-----------------------------------------------------------------------------
+(* SET DEFINITIONS *)
+
+ShunnedBy(N_2) == { N_1 \in NodeID : ingress[N_1,N_2].shunned }
+NotShunnedBy(N_1) == NodeID \ ShunnedBy(N_1)
+NeitherShuns(N_1, N_2) == ~ingress[N_1, N_2].shunned /\ ~ingress[N_2, N_1].shunned
+
+(* A message must be placed in a mailbox before being delivered. *)
+deliverableMsgsTo(a) == { a \in msgsTo(a) : a.inMailbox }
+
+(* A message can enter a mailbox if it is not already in a mailbox and the origin
+   node is not shunned by the destination node. *)
+CanEnterMailbox ==
+    { m \in BagToSet(msgs) : ~m.inMailbox /\ ~ingress[m.origin, location[m.target]].shunned }
+        
+
 
 -----------------------------------------------------------------------------
 (* TRANSITION RULES *)
 
-Idle(a)         == M!Idle(a)         /\ UNCHANGED <<location,oracle,oracleSnapshots>>
-Deactivate(a,b) == M!Deactivate(a,b) /\ UNCHANGED <<location,oracle,oracleSnapshots>>
-Send(a,b,m)     == M!Send(a,b,m)     /\ UNCHANGED <<location,oracle,oracleSnapshots>>
-Receive(a,m)    == M!Receive(a,m)    /\ UNCHANGED <<location,oracle,oracleSnapshots>>
-Snapshot(a)     == M!Snapshot(a)     /\ UNCHANGED <<location,oracle,oracleSnapshots>>
-Crash(a)        == M!Crash(a)        /\ UNCHANGED <<location,oracle,oracleSnapshots>>
-Monitor(a,b)    == M!Monitor(a,b)    /\ UNCHANGED <<location,oracle,oracleSnapshots>>
-Notify(a,b)     == M!Notify(a,b)     /\ UNCHANGED <<location,oracle,oracleSnapshots>>
-Register(a)     == M!Register(a)     /\ UNCHANGED <<location,oracle,oracleSnapshots>>
-Wakeup(a)       == M!Wakeup(a)       /\ UNCHANGED <<location,oracle,oracleSnapshots>>
-Unregister(a)   == M!Unregister(a)   /\ UNCHANGED <<location,oracle,oracleSnapshots>>
-
-Enter(m) ==
-    LET N_1 == m.origin
-        N_2 == location[m.target] 
-        B == SetToBag(m.refs)
-    IN
-    /\ oracle' = [oracle EXCEPT ![N_1,N_2].sentCount = @ + 1, ![N_1,N_2].sentRefs = @ (+) B]
-    /\ msgs' = replace(msgs, m, [m EXCEPT !.inMailbox = TRUE])
-    /\ UNCHANGED <<actors,snapshots,oracleSnapshots,location>>
+Idle(a)         == M!Idle(a)         /\ UNCHANGED <<location,ingress,ingressSnapshots>>
+Deactivate(a,b) == M!Deactivate(a,b) /\ UNCHANGED <<location,ingress,ingressSnapshots>>
+Send(a,b,m)     == M!Send(a,b,m)     /\ UNCHANGED <<location,ingress,ingressSnapshots>>
+Receive(a,m)    == M!Receive(a,m)    /\ UNCHANGED <<location,ingress,ingressSnapshots>>
+Snapshot(a)     == M!Snapshot(a)     /\ UNCHANGED <<location,ingress,ingressSnapshots>>
+Crash(a)        == M!Crash(a)        /\ UNCHANGED <<location,ingress,ingressSnapshots>>
+Monitor(a,b)    == M!Monitor(a,b)    /\ UNCHANGED <<location,ingress,ingressSnapshots>>
+Notify(a,b)     == M!Notify(a,b)     /\ UNCHANGED <<location,ingress,ingressSnapshots>>
+Register(a)     == M!Register(a)     /\ UNCHANGED <<location,ingress,ingressSnapshots>>
+Wakeup(a)       == M!Wakeup(a)       /\ UNCHANGED <<location,ingress,ingressSnapshots>>
+Unregister(a)   == M!Unregister(a)   /\ UNCHANGED <<location,ingress,ingressSnapshots>>
 
 Spawn(a,b,state,N) == 
     /\ M!Spawn(a, b, state)
     /\ location' = [location EXCEPT ![b] = N]
-    /\ UNCHANGED <<oracleSnapshots,oracle>>
+    /\ UNCHANGED <<msgs,ingress,ingressSnapshots>>
 
-(* If a message is not marked, then the message is added to the oracle's bag of dropped messages. 
-   If the message is marked, the oracle moves the message from its bag of sent messages to its bag
-   of dropped messages. *)
+Enter(m) ==
+    LET N_1 == m.origin
+        N_2 == location[m.target] 
+        B   == [ b,c \in {m.target} \X m.refs |-> 1 ]
+    IN
+    /\ ingress' = [ingress EXCEPT ![N_1,N_2].sentCount = @ + 1, ![N_1,N_2].sentRefs = @ ++ B]
+    /\ msgs' = replace(msgs, m, [m EXCEPT !.inMailbox = TRUE])
+    /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
+
+(* If a message is in flight, then it is added to the ingress's bag of dropped messages. 
+   If the message is in a mailbox, the ingress moves the message from its bag of sent messages 
+   to its bag of dropped messages. *)
 Drop(m) == 
     LET N_1 == m.origin 
         N_2 == location[m.target]
-        B == SetToBag(m.refs)
+        B   == [ b,c \in {m.target} \X m.refs |-> 1 ]
     IN
     /\ msgs' = remove(msgs, m)
     /\ IF ~m.inMailbox THEN 
-           oracle' = [oracle EXCEPT ![N_1,N_2].droppedCount = @+1, ![N_1,N_2].droppedRefs = @ (+) B]
+           ingress' = [ingress EXCEPT ![N_1,N_2].droppedCount = @ + 1, ![N_1,N_2].droppedRefs = @ ++ B]
        ELSE
-           oracle' = [oracle EXCEPT ![N_1,N_2].droppedCount = @+1, ![N_1,N_2].droppedRefs = @ (+) B,
-                                    ![N_1,N_2].sentCount = @-1,    ![N_1,N_2].sentRefs = @ (-) B]
-    /\ UNCHANGED <<actors,snapshots,oracleSnapshots,location>>
+           ingress' = [ingress EXCEPT ![N_1,N_2].droppedCount = @ + 1, ![N_1,N_2].droppedRefs = @ ++ B,
+                                    ![N_1,N_2].sentCount    = @ - 1, ![N_1,N_2].sentRefs    = @ -- B]
+    /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
 Shun(N_1, N_2) ==
-    /\ oracle' = [oracle EXCEPT ![N_1,N_2].shunned = TRUE]
+    /\ ingress' = [ingress EXCEPT ![N_1,N_2].shunned = TRUE]
     /\ msgs' = removeWhere(msgs, LAMBDA m: location[m.target] = N_1 /\ m.origin = N_2)
-    /\ UNCHANGED <<actors,snapshots,oracleSnapshots,location>>
+    /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
-OracleSnapshot(node) ==
-    /\ (oracleSnapshots[node].exiled # oracle[node].exiled \/ 
-        oracleSnapshots[node].dropped # oracle[node].dropped)
-    /\ oracleSnapshots' = [oracleSnapshots EXCEPT ![node] = oracle[node]]
-    /\ UNCHANGED <<actors,msgs,snapshots,oracle,location>>
+IngressSnapshot(node) ==
+    /\ (ingressSnapshots[node].exiled # ingress[node].exiled \/ 
+        ingressSnapshots[node].dropped # ingress[node].dropped)
+    /\ ingressSnapshots' = [ingressSnapshots EXCEPT ![node] = ingress[node]]
+    /\ UNCHANGED <<actors,msgs,snapshots,ingress,location>>
 
 (*
 DropOracle(a, droppedMsgs) ==
@@ -184,7 +187,7 @@ Next ==
     \/ \E a \in BusyActors \intersect Receptionists: Unregister(a)
     \/ \E m \in BagToSet(msgs): Drop(m)
     \/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
-    \/ \E node \in NonExiledNodes: OracleSnapshot(node)
+    \/ \E node \in NonExiledNodes: IngressSnapshot(node)
     \/ \E m \in CanEnterMailbox: Mark(m)
     (*
     \/ \E a \in NonFaultyActors: 
@@ -238,12 +241,12 @@ LargestSubset(D, F) ==
     D \ CHOOSE S \in SUBSET D: ~F(S)
 
 (* A set of nodes S is apparently exiled if every node aside from S has
-   taken an oracle snapshot and the oracle snapshots were all taken after
+   taken an ingress snapshot and the ingress snapshots were all taken after
    S was exiled. *)
 ApparentlyExiledNodes == 
     LargestSubset(ExiledNodes, LAMBDA S:
-        /\ (NodeID \ S) \subseteq pdom(oracleSnapshots)
-        /\ \A node \in NodeID \ S : S \subseteq oracleSnapshots[node].exiled
+        /\ (NodeID \ S) \subseteq pdom(ingressSnapshots)
+        /\ \A node \in NodeID \ S : S \subseteq ingressSnapshots[node].exiled
     )
 ApparentlyExiledActors == { a \in pdom(actors) : location[a] \in ApparentlyExiledNodes }
 
@@ -262,14 +265,14 @@ effectivelyCreatedRefs ==
 
 (* The bag of messages that have been delivered to `a' from apparently exiled nodes. *)
 effectivelyDeliveredMsgsTo(a) == 
-    selectWhere(oracleSnapshots[location[a]].delivered, 
+    selectWhere(ingressSnapshots[location[a]].delivered, 
                 LAMBDA m: m.target = a /\ m.origin \in ApparentlyExiledNodes)
 
 (* The bag of actors on `nodes' that have received references to `a' from 
    nodes that are apparently exiled. Each instance of an actor in the bag 
    corresponds to one reference to `a'. *)
 effectivelyDeliveredRefsTo(a) == 
-    LET B1(a, n) == selectWhere(oracleSnapshots[n].delivered, 
+    LET B1(a, n) == selectWhere(ingressSnapshots[n].delivered, 
                                 LAMBDA msg: a \in msg.refs /\ msg.origin \in ApparentlyExiledNodes) IN
         \* B1(a, n) is the bag of messages delivered to node n that contain a reference to `a'.
     LET B2(a, n) == BagOfAll(LAMBDA msg: msg.target, B1(a, n)) IN 
@@ -281,7 +284,7 @@ AppearsFaulty == M!AppearsCrashed \union ExiledActors \* Nodes have common knowl
 AppearsReceptionist == M!AppearsReceptionist
 appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
 
-(* We now use snapshots from both actors and oracles to compute effective message counts and 
+(* We now use snapshots from both actors and ingresss to compute effective message counts and 
    potential references. *)
 
 effectiveCreatedCount == 
@@ -298,10 +301,10 @@ effectiveSendCount ==
 (* `b' is an effective historical inverse acquaintance of `c' if... *)
 historicalIAcqs(c) == { b \in ActorName : effectiveCreatedCount[b, c] > 0 }
 apparentIAcqs(c)   == { b \in ActorName : effectiveCreatedCount[b, c] > effectiveDeactivatedCount[b, c] }
-    \* TODO We can ignore exiled actors if we have sufficient oracle snapshots
+    \* TODO We can ignore exiled actors if we have sufficient ingress snapshots
 
 (* If an exiled actor `a' is historically potentially acquainted with `b', then
-   `b' is only closed if we have sufficient oracle snapshots. *)
+   `b' is only closed if we have sufficient ingress snapshots. *)
 AppearsClosed  == { b \in pdom(snapshots) : effectiveHistoricalIAcqs(b) \subseteq pdom(snapshots) }
 AppearsBlocked == { b \in AppearsIdle \cap AppearsClosed : countSentTo(b) = countReceived(b) }
 

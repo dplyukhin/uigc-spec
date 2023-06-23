@@ -21,6 +21,9 @@ CONSTANT null
 map1 ++ map2 == [ a \in DOMAIN map1 |-> IF a \in DOMAIN map2 
                                         THEN map1[a] + map2[a] 
                                         ELSE map1[a] ]
+map1 -- map2 == [ a \in DOMAIN map1 |-> IF a \in DOMAIN map2 
+                                        THEN map1[a] - map2[a] 
+                                        ELSE map1[a] ]
 
 (* Notation for manipulating bags, i.e. multisets. TLA+ represents bags as 
 functions from a set of elements to a count of how many elements are in the bag.
