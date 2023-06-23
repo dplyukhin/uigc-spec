@@ -12,9 +12,11 @@ VARIABLE location, ingress, ingressSnapshots
 M == INSTANCE Monitors
 
 (* We add two fields to every message. `origin' indicates the node that produced the
-   message and `inMailbox' indicates whether the message has arrived at the 
-   destination node. All messages must be placed in a mailbox before delivery. *)
-Message == [origin: NodeID, inMailbox: BOOLEAN, target: ActorName, refs : SUBSET ActorName] 
+   message and `admitted' indicates whether the message was admitted into the
+   destination node by the ingress actor. All messages between actors on distinct nodes 
+   must be admitted before they can be received by the destination actor. Messages 
+   between actors on the same node are admitted by default. *)
+Message == [origin: NodeID, admitted: BOOLEAN, target: ActorName, refs : SUBSET ActorName] 
 
 -----------------------------------------------------------------------------
 (* INITIALIZATION AND BASIC INVARIANTS *)
@@ -63,16 +65,14 @@ ShunnedBy(N_2) == { N_1 \in NodeID : ingress[N_1,N_2].shunned }
 NotShunnedBy(N_1) == NodeID \ ShunnedBy(N_1)
 NeitherShuns(N_1, N_2) == ~ingress[N_1, N_2].shunned /\ ~ingress[N_2, N_1].shunned
 
-(* A message must be placed in a mailbox before being delivered. *)
-deliverableMsgsTo(a) == { a \in msgsTo(a) : a.inMailbox }
+(* A message must be admitted before being delivered. *)
+deliverableMsgsTo(a) == { a \in msgsTo(a) : a.admitted }
 
-(* A message can enter a mailbox if it is not already in a mailbox and the origin
+(* A message is admissible if it is not already admitted and the origin
    node is not shunned by the destination node. *)
-CanEnterMailbox ==
-    { m \in BagToSet(msgs) : ~m.inMailbox /\ ~ingress[m.origin, location[m.target]].shunned }
+AdmissibleMsgs ==
+    { m \in BagToSet(msgs) : ~m.admitted /\ ~ingress[m.origin, location[m.target]].shunned }
         
-
-
 -----------------------------------------------------------------------------
 (* TRANSITION RULES *)
 
@@ -93,17 +93,17 @@ Spawn(a,b,state,N) ==
     /\ location' = [location EXCEPT ![b] = N]
     /\ UNCHANGED <<msgs,ingress,ingressSnapshots>>
 
-Enter(m) ==
+Admit(m) ==
     LET N_1 == m.origin
         N_2 == location[m.target] 
         B   == [ b,c \in {m.target} \X m.refs |-> 1 ]
     IN
     /\ ingress' = [ingress EXCEPT ![N_1,N_2].sentCount = @ + 1, ![N_1,N_2].sentRefs = @ ++ B]
-    /\ msgs' = replace(msgs, m, [m EXCEPT !.inMailbox = TRUE])
+    /\ msgs' = replace(msgs, m, [m EXCEPT !.admitted = TRUE])
     /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
 (* If a message is in flight, then it is added to the ingress's bag of dropped messages. 
-   If the message is in a mailbox, the ingress moves the message from its bag of sent messages 
+   If the message has been admitted, the ingress moves the message from its bag of sent messages 
    to its bag of dropped messages. *)
 Drop(m) == 
     LET N_1 == m.origin 
@@ -111,11 +111,11 @@ Drop(m) ==
         B   == [ b,c \in {m.target} \X m.refs |-> 1 ]
     IN
     /\ msgs' = remove(msgs, m)
-    /\ IF ~m.inMailbox THEN 
+    /\ IF ~m.admitted THEN 
            ingress' = [ingress EXCEPT ![N_1,N_2].droppedCount = @ + 1, ![N_1,N_2].droppedRefs = @ ++ B]
        ELSE
            ingress' = [ingress EXCEPT ![N_1,N_2].droppedCount = @ + 1, ![N_1,N_2].droppedRefs = @ ++ B,
-                                    ![N_1,N_2].sentCount    = @ - 1, ![N_1,N_2].sentRefs    = @ -- B]
+                              i       ![N_1,N_2].sentCount    = @ - 1, ![N_1,N_2].sentRefs    = @ -- B]
     /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
 Shun(N_1, N_2) ==
@@ -172,7 +172,7 @@ Next ==
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
     \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
         NeitherShuns(location[a], location[b]) /\
-        Send(a,b,[origin |-> location[a], inMailbox |-> location[b] = location[a], 
+        Send(a,b,[origin |-> location[a], admitted |-> location[b] = location[a], 
                   target |-> b, refs |-> refs])
         \* NEW: Messages are tagged with node locations and cannot be sent to faulty actors.
     \/ \E a \in IdleActors: \E m \in deliverableMsgsTo(a): Receive(a,m)
@@ -188,7 +188,7 @@ Next ==
     \/ \E m \in BagToSet(msgs): Drop(m)
     \/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
     \/ \E node \in NonExiledNodes: IngressSnapshot(node)
-    \/ \E m \in CanEnterMailbox: Mark(m)
+    \/ \E m \in AdmissibleMsgs: Admit(m)
     (*
     \/ \E a \in NonFaultyActors: 
        \E droppedMsgs \in SubBag(droppedMsgsTo(a)): 
