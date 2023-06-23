@@ -37,7 +37,7 @@ ActorState == [
 
 IngressState == [
     shunned      : BOOLEAN,
-    sentCount    : [ActorName -> Nat],
+    sendCount    : [ActorName -> Nat],
     sentRefs     : [ActorName \X ActorName -> Nat],
     droppedCount : [ActorName -> Nat],
     droppedRefs  : [ActorName \X ActorName -> Nat]
@@ -49,24 +49,24 @@ TypeOK ==
   /\ BagToSet(msgs)   \subseteq Message
   /\ location         \in [ActorName -> NodeID \cup {null}] \* NEW
   /\ ingress          \in [NodeID \X NodeID -> IngressState] \* NEW
-  /\ ingressSnapshots \in [NodeID \X NodeID -> IngressState \cup {null}] \* NEW
+  /\ ingressSnapshots \in [NodeID \X NodeID -> IngressState] \* NEW
   /\ \A a \in Actors: location[a] # null \* Every actor has a location upon being spawned.
 
 InitialActorState == M!InitialActorState
 
+InitialIngressState = [
+    shunned      |-> FALSE,
+    sendCount    |-> [a \in ActorName |-> 0],
+    sentRefs     |-> [a,b \in ActorName |-> 0]
+    droppedCount |-> [a \in ActorName |-> 0],
+    droppedRefs  |-> [a,b \in ActorName |-> 0]
+]
+
 InitialConfiguration(initialActor, node, actorState) == 
     /\ M!InitialConfiguration(initialActor, actorState)
-    /\ ingress = 
-        [N_1, N_2 \in NodeID |->
-            [shunned      |-> FALSE,
-             sentCount    |-> [a \in ActorName |-> 0],
-             sentRefs     |-> [a,b \in ActorName |-> 0]
-             droppedCount |-> [a \in ActorName |-> 0],
-             droppedRefs  |-> [a,b \in ActorName |-> 0]
-            ]
-        ]
-    /\ ingressSnapshots = [N_1, N_2 \in NodeID |-> null]
-    /\ location = [a \in ActorName |-> null] ++ (initialActor :> node)
+    /\ ingress          = [N_1, N_2 \in NodeID |-> InitialIngressState]
+    /\ ingressSnapshots = [N_1, N_2 \in NodeID |-> InitialIngressState]
+    /\ location         = [a \in ActorName |-> null] ++ (initialActor :> node)
 
 -----------------------------------------------------------------------------
 (* SET DEFINITIONS *)
@@ -118,7 +118,7 @@ Admit(m) ==
         N_2 == location[m.target] 
         B   == [ b,c \in {m.target} \X m.refs |-> 1 ]
     IN
-    /\ ingress' = [ingress EXCEPT ![N_1,N_2].sentCount = @ + 1, ![N_1,N_2].sentRefs = @ ++ B]
+    /\ ingress' = [ingress EXCEPT ![N_1,N_2].sendCount = @ + 1, ![N_1,N_2].sentRefs = @ ++ B]
     /\ msgs' = replace(msgs, m, [m EXCEPT !.admitted = TRUE])
     /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
@@ -135,13 +135,14 @@ Drop(m) ==
            ingress' = [ingress EXCEPT ![N_1,N_2].droppedCount = @ + 1, ![N_1,N_2].droppedRefs = @ ++ B]
        ELSE
            ingress' = [ingress EXCEPT ![N_1,N_2].droppedCount = @ + 1, ![N_1,N_2].droppedRefs = @ ++ B,
-                                      ![N_1,N_2].sentCount    = @ - 1, ![N_1,N_2].sentRefs    = @ -- B]
+                                      ![N_1,N_2].sendCount    = @ - 1, ![N_1,N_2].sentRefs    = @ -- B]
     /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
 Shun(N_1, N_2) ==
     /\ ingress' = [ingress EXCEPT ![N_1,N_2].shunned = TRUE]
     /\ actors' = [actors EXCEPT ![a].status = IF location[a] \in ExiledNodes THEN "exiled" else @]
         \* If the node has become exiled, then all its actors are marked as such.
+    /\ snapshots' = [snapshots EXCEPT ![a] = IF location[a] \in ExiledNodes THEN null ELSE @]
     /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
 
 (* To reduce the model checking state space, the `Shun' rule can be replaced with the following `Exile'
@@ -149,44 +150,13 @@ Shun(N_1, N_2) ==
    there is an equivalent execution in which all `Shun' events happen successively.  *)
 Exile(G_1, G_2) ==
     /\ ingress' = [ingress EXCEPT ![N_1,N_2].shunned = @ \/ (N_1 \in G_1 /\ N_2 \in G_2)]
-    /\ actors' = [actors EXCEPT ![a].status = IF location[a] \in ExiledNodes THEN "exiled" else @]
+    /\ actors' = [actors EXCEPT ![a].status = IF location[a] \in ExiledNodes THEN "exiled" ELSE @]
+    /\ snapshots' = [snapshots EXCEPT ![a] = IF location[a] \in ExiledNodes THEN null ELSE @]
     /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
 
 IngressSnapshot(N_1, N_2) ==
     /\ ingressSnapshots' = [ingressSnapshots EXCEPT ![N_1,N_2] = ingress[N_1,N_2]]
     /\ UNCHANGED <<actors,msgs,snapshots,ingress,location>>
-
-(*
-DropOracle(a, droppedMsgs) ==
-    LET node == location[a]
-        droppedCount == BagCardinality(droppedMsgs)
-        droppedRefs  == BagUnionOfSets(BagOfAll(LAMBDA msg: msg.refs, droppedMsgs)) IN
-    /\ actors' = [ actors EXCEPT 
-                   ![a].recvCount = @ + droppedCount,
-                   ![a].deactivated = @ ++ droppedRefs
-                 ]
-    /\ oracle' = [oracle EXCEPT 
-                    ![node].delivered = @ (+) droppedMsgs,
-                    ![node].dropped   = @ (-) droppedMsgs]
-                 \* The oracle now considers these messages to be "delivered".
-    /\ UNCHANGED <<msgs,snapshots,location,nodeStatus>>
-
-ExileOracle(a, exiledNodes) ==
-    LET remainingNodes == NodeID \ (exiledNodes \union actors[a].exiled)
-            \* The set of nodes that have not been exiled yet.
-        delivered == deliveredMsgsTo(a, exiledNodes)
-            \* The set of all messages delivered to `a', sent by actors in exiledNodes.
-        created == BagUnion({ deliveredRefs(a, node, exiledNodes) : node \in remainingNodes })
-            \* The bag of references pointing to `a', created by actors in exiledNodes
-            \* for actors on remainingNodes.
-    IN 
-    /\ actors' = [ actors EXCEPT 
-                   ![a].recvCount = @ - BagCardinality(delivered),
-                   ![a].created = @ ++ BagOfAll(LAMBDA b: <<b,a>>, created),
-                   ![a].exiled = @ \union exiledNodes
-                 ]
-    /\ UNCHANGED <<msgs,snapshots,location,nodeStatus,oracle>>
-*)
 
 Init == 
     InitialConfiguration(CHOOSE a \in ActorName: TRUE, CHOOSE n \in NodeID: TRUE, InitialActorState)
@@ -262,8 +232,9 @@ Quiescent == Actors \ PotentiallyUnblocked
    taken an ingress snapshot and every node in G is shunned in those snapshots. *)
 ApparentlyExiledNodes == 
     LargestSubset(ExiledNodes, LAMBDA G:
-        /\ (NodeID \ G) \subseteq pdom(ingressSnapshots)
-        /\ \A N_1 \in G, N_2 \in NodeID \ G : ingressSnapshots[N_1,N_2].shunned
+        \A N_1 \in G, N_2 \in NodeID \ G : 
+            ingressSnapshots[N_1,N_2] # null /\
+            ingressSnapshots[N_1,N_2].shunned
     )
 ApparentlyExiledActors == { a \in Actors : location[a] \in ApparentlyExiledNodes }
 
@@ -272,11 +243,45 @@ AppearsFaulty == M!AppearsCrashed \union ApparentlyExiledActors
 AppearsRoot == M!AppearsRoot
 appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
 
-(* We use snapshots from both application actors and ingress actors to compute 
-   effective message counts and potential references. *)
+
+(* The effective created count is the sum of (a) the created counts recorded by non-exiled actors
+   and (b) the created counts recorded by ingress actors for exiled nodes. *)
+effectiveCreatedCount(a, b) == 
+    sum([ c \in Snapshots \ ApparentlyExiledActors |-> snapshots[c].created[a, b]]) +
+    sum([ N_1 \in ApparentlyExiledNodes, N_2 \in NodeID \ ApparentlyExiledNodes |-> ingressSnapshots[N_1, N_2].created[a, b] ])
+    \* TODO WHAT IF A IS EXILED
+
+(* Once an actor `a' is exiled, all its references are effectively deactivated. Thus the effective 
+   deactivated count is equal to the effective created count. 
+   
+   If an actor `a' is not exiled, all the references that were sent to `a' and dropped are effectively
+   deactivated. Thus the effective deactivated count is the sum of an actor's actually deactivated references
+   the number of dropped references. *)
+effectiveDeactivatedCount(a, b) == 
+    IF a \in ApparentlyExiledActors THEN 
+        effectiveCreatedCount(a, b) 
+    ELSE 
+        (IF a \in Snapshots THEN snapshots[a].deactivated[b] + ELSE 0) +
+        sum([ N_1 \in NodeID |-> ingressSnapshots[N, location[a]].droppedRefs[a, b] ])
+        \* What happens IF I SEND A REF TO AN EXILED ACTOR? 
+
+(* Once an actor `a' is exiled, the number of messages that `a' effectively sent to some `b'
+   is equal to the number of messages admitted by the ingress actor at `b''s node. Thus the
+   effective total send count for `b' is the sum of the send counts from non-exiled actors
+   and the number of messages for `b' that entered the ingress actor from apparently exiled nodes. *)
+effectiveSendCount(b) == 
+    sum([ a \in Snapshots \ ApparentlyExiledActors |-> snapshots[a].sendCount[b]]) +
+    sum([ N_1 \in ApparentlyExiledNodes |-> ingressSnapshots[N_1, location[b]].sendCount[b] ])
+
+(* All messages to actor `b' that were dropped are effectively received. Thus an actor's
+   effective receive count is the sum of its actual receive count and the number of 
+   dropped messages sent to it. *)
+effectiveReceiveCount(b) == 
+    (IF b \in Snapshots THEN snapshots[b].recvCount ELSE 0) +
+    sum([ N \in NodeID |-> ingressSnapshots[N, location[b]].droppedCount[b] ])
 
 effectiveCreatedCount == 
-    BagUnion({ snapshots[c].created : c \in pdom(snapshots) \ ApparentlyExiledActors }) (+)
+    sum({ snapshots[c].created : c \in pdom(snapshots) \ ApparentlyExiledActors }) (+)
     deliveredRefsFromExiledNodes
 effectiveDeactivatedCount == 
     [ <<a,b>> \in ... |-> snapshots[a].deactivated[b] ] (+)

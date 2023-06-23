@@ -70,7 +70,8 @@ FreshActorName == IF \E a \in ActorName : actors[a] = null
                   THEN {CHOOSE a \in ActorName : actors[a] = null}
                   ELSE {}
 
-Actors == pdom(actors)
+Actors    == pdom(actors)
+Snapshots == pdom(snapshots)
 
 msgsTo(a)    == { m \in BagToSet(msgs) : m.target = a }
 acqs(a)      == { b \in ActorName : actors[a].active[b] > 0 }
