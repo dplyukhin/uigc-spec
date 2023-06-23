@@ -63,7 +63,7 @@ InitialConfiguration(initialActor, node, actorState) ==
 
 ShunnedBy(N_2) == { N_1 \in NodeID : ingress[N_1,N_2].shunned }
 NotShunnedBy(N_1) == NodeID \ ShunnedBy(N_1)
-NeitherShuns(N_1, N_2) == ~ingress[N_1, N_2].shunned /\ ~ingress[N_2, N_1].shunned
+NeitherShuns(N_1) == { N_2 \in NodeID : ~ingress[N_1, N_2].shunned /\ ~ingress[N_2, N_1].shunned }
 
 (* A message must be admitted before being delivered. *)
 deliverableMsgsTo(a) == { a \in msgsTo(a) : a.admitted }
@@ -120,13 +120,17 @@ Drop(m) ==
 
 Shun(N_1, N_2) ==
     /\ ingress' = [ingress EXCEPT ![N_1,N_2].shunned = TRUE]
-    /\ msgs' = removeWhere(msgs, LAMBDA m: location[m.target] = N_1 /\ m.origin = N_2)
-    /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
+    /\ UNCHANGED <<actors,msgs,snapshots,ingressSnapshots,location>>
 
-IngressSnapshot(node) ==
-    /\ (ingressSnapshots[node].exiled # ingress[node].exiled \/ 
-        ingressSnapshots[node].dropped # ingress[node].dropped)
-    /\ ingressSnapshots' = [ingressSnapshots EXCEPT ![node] = ingress[node]]
+(* To reduce the model checking state space, the `Shun' rule can be replaced with the following `Exile'
+   rule. This is safe because, for any execution in which a faction G_1 all shuns another faction G_2,
+   there is an equivalent execution in which all `Shun' events happen successively.  *)
+Exile(G_1, G_2) ==
+    /\ ingress' = [ingress EXCEPT ![N_1,N_2].shunned = @ \/ (N_1 \in G_1 /\ N_2 \in G_2)]
+    /\ UNCHANGED <<actors,msgs,snapshots,ingressSnapshots,location>>
+
+IngressSnapshot(N_1, N_2) ==
+    /\ ingressSnapshots' = [ingressSnapshots EXCEPT ![N_1,N_2] = ingress[N_1,N_2]]
     /\ UNCHANGED <<actors,msgs,snapshots,ingress,location>>
 
 (*
@@ -166,12 +170,11 @@ Init ==
 
 Next ==
     \/ \E a \in BusyActors: Idle(a)
-    \/ \E a \in BusyActors: \E b \in FreshActorName: \E N \in NodeID: 
-       NeitherShuns(location[a], N) /\ Spawn(a,b,InitialActorState,N)
+    \/ \E a \in BusyActors: \E b \in FreshActorName: \E N \in NeitherShuns(location[a]):
+       Spawn(a,b,InitialActorState,N)
         \* NEW: Actors are spawned onto a specific (non-exiled) node.
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
     \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
-        NeitherShuns(location[a], location[b]) /\
         Send(a,b,[origin |-> location[a], admitted |-> location[b] = location[a], 
                   target |-> b, refs |-> refs])
         \* NEW: Messages are tagged with node locations and cannot be sent to faulty actors.
@@ -187,7 +190,8 @@ Next ==
     \/ \E a \in BusyActors \intersect Receptionists: Unregister(a)
     \/ \E m \in BagToSet(msgs): Drop(m)
     \/ \E nodes \in SUBSET NonExiledNodes: Exile(nodes)
-    \/ \E node \in NonExiledNodes: IngressSnapshot(node)
+    \/ \E node \in NonExiledNodes: ingress[N_1,N_2] # ingressSnapshots[N_1,N_2] /\ IngressSnapshot(node)
+        \* NEW: Ingress actors can take snapshots. No need to take snapshots that have no effect.
     \/ \E m \in AdmissibleMsgs: Admit(m)
     (*
     \/ \E a \in NonFaultyActors: 
