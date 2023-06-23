@@ -81,8 +81,9 @@ ExiledNodes ==
     LargestSubset(NodeID, LAMBDA G:
         \A N_1 \in G, N_2 \in NodeID \ G : ingress[N_1,N_2].shunned
     )
-ExiledActors == { a \in Actors : actors[a].status = "exiled" }
-FaultyActors == CrashedActors \union ExiledActors
+ExiledActors    == { a \in Actors : actors[a].status = "exiled" }
+FaultyActors    == CrashedActors \union ExiledActors
+NonFaultyActors == Actors \ FaultyActors
 
 (* A message must be admitted before being delivered. *)
 deliverableMsgsTo(a) == { a \in msgsTo(a) : a.admitted }
@@ -134,7 +135,7 @@ Drop(m) ==
            ingress' = [ingress EXCEPT ![N_1,N_2].droppedCount = @ + 1, ![N_1,N_2].droppedRefs = @ ++ B]
        ELSE
            ingress' = [ingress EXCEPT ![N_1,N_2].droppedCount = @ + 1, ![N_1,N_2].droppedRefs = @ ++ B,
-                              i       ![N_1,N_2].sentCount    = @ - 1, ![N_1,N_2].sentRefs    = @ -- B]
+                                      ![N_1,N_2].sentCount    = @ - 1, ![N_1,N_2].sentRefs    = @ -- B]
     /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
 Shun(N_1, N_2) ==
@@ -231,79 +232,48 @@ monitoredBy(b) == M!monitoredBy(b)
 isPotentiallyUnblockedUpToAFault(S) ==
     /\ Roots \ FaultyActors \subseteq S
     /\ Unblocked \ FaultyActors \subseteq S
-    /\ \A a \in Actors, b \in Actors \ FaultyActors :
+    /\ \A a \in Actors, b \in NonFaultyActors :
         /\ (a \in S \intersect piacqs(b) => b \in S)
         /\ (a \in (S \union FaultyActors) \intersect monitoredBy(b) => b \in S)
-            \* NEW: An actor is not garbage if it monitors an exiled actor
+            \* NEW: An actor is not garbage if it monitors an exiled actor.
 
+(* An actor is potentially unblocked if it is potentially unblocked up-to-a-fault
+   or it monitors any remote actor. This is because remote actors can always
+   become exiled, causing the monitoring actor to be notified. *)
 isPotentiallyUnblocked(S) ==
     /\ isPotentiallyUnblockedUpToAFault(S)
-    /\ \A a \in Actors, b \in Actors \ FaultyActors :
+    /\ \A a \in Actors, b \in NonFaultyActors :
         /\ (a \in monitoredBy(b) /\ location[a] # location[b] => b \in S)
-            \* NEW: Actors that monitor remote actors are not garbage
 
-(* An actor is quiescent if it has not been exiled and it is not potentially 
-   unblocked. Likewise for quiescence up-to-a-fault. *)
-
+(* An actor is quiescent if it is not potentially unblocked. Likewise for 
+   quiescence up-to-a-fault. *)
 PotentiallyUnblockedUpToAFault == 
-    CHOOSE S \in SUBSET Actors \ FaultyActors : isPotentiallyUnblockedUpToAFault(S)
-QuiescentUpToAFault == 
-    (Actors \ ExiledActors) \ PotentiallyUnblockedUpToAFault
+    CHOOSE S \in SUBSET NonFaultyActors : isPotentiallyUnblockedUpToAFault(S)
+QuiescentUpToAFault == Actors \ PotentiallyUnblockedUpToAFault
 
 PotentiallyUnblocked == 
-    CHOOSE S \in SUBSET Actors \ FaultyActors : isPotentiallyUnblocked(S)
-Quiescent == 
-    (Actors \ ExiledActors) \ PotentiallyUnblocked
+    CHOOSE S \in SUBSET NonFaultyActors : isPotentiallyUnblocked(S)
+Quiescent == Actors \ PotentiallyUnblocked
 
 -----------------------------------------------------------------------------
 (* APPARENT GARBAGE *)
 
-(* A set of nodes S is apparently exiled if every node aside from S has
-   taken an ingress snapshot and the ingress snapshots were all taken after
-   S was exiled. *)
+(* A faction of nodes G is apparently exiled if every node outside of G has
+   taken an ingress snapshot and every node in G is shunned in those snapshots. *)
 ApparentlyExiledNodes == 
-    LargestSubset(ExiledNodes, LAMBDA S:
-        /\ (NodeID \ S) \subseteq pdom(ingressSnapshots)
-        /\ \A node \in NodeID \ S : S \subseteq ingressSnapshots[node].exiled
+    LargestSubset(ExiledNodes, LAMBDA G:
+        /\ (NodeID \ G) \subseteq pdom(ingressSnapshots)
+        /\ \A N_1 \in G, N_2 \in NodeID \ G : ingressSnapshots[N_1,N_2].shunned
     )
 ApparentlyExiledActors == { a \in Actors : location[a] \in ApparentlyExiledNodes }
 
-(* The bag of messages that have been sent to `a' from `nodes' and were dropped. *)
-apparentDroppedMsgsTo ==
-    BagUnion({ droppedMessages(n1,n2) : 
-        n1 \in ApparentlyExiledNodes, n2 \in NodeID \ ApparentlyExiledNodes })
-
-apparentDeliveredMsgs ==
-    BagUnion({ deliveredMessages(n1,n2) : 
-        n1 \in ApparentlyExiledNodes, n2 \in NodeID \ ApparentlyExiledNodes })
-
-effectivelyCreatedRefs ==
-    {}
-
-
-(* The bag of messages that have been delivered to `a' from apparently exiled nodes. *)
-effectivelyDeliveredMsgsTo(a) == 
-    selectWhere(ingressSnapshots[location[a]].delivered, 
-                LAMBDA m: m.target = a /\ m.origin \in ApparentlyExiledNodes)
-
-(* The bag of actors on `nodes' that have received references to `a' from 
-   nodes that are apparently exiled. Each instance of an actor in the bag 
-   corresponds to one reference to `a'. *)
-effectivelyDeliveredRefsTo(a) == 
-    LET B1(a, n) == selectWhere(ingressSnapshots[n].delivered, 
-                                LAMBDA msg: a \in msg.refs /\ msg.origin \in ApparentlyExiledNodes) IN
-        \* B1(a, n) is the bag of messages delivered to node n that contain a reference to `a'.
-    LET B2(a, n) == BagOfAll(LAMBDA msg: msg.target, B1(a, n)) IN 
-        \* B2(a, n) is the bag of actors on node n that have received references to `a'.
-    BagUnion({ B2(a,n) : n \in NodeID \ ApparentlyExiledNodes})
-
 AppearsCrashed == M!AppearsCrashed
-AppearsFaulty == M!AppearsCrashed \union ExiledActors \* Nodes have common knowledge about exiled actors.
+AppearsFaulty == M!AppearsCrashed \union ApparentlyExiledActors
 AppearsRoot == M!AppearsRoot
 appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
 
-(* We now use snapshots from both actors and ingresss to compute effective message counts and 
-   potential references. *)
+(* We use snapshots from both application actors and ingress actors to compute 
+   effective message counts and potential references. *)
 
 effectiveCreatedCount == 
     BagUnion({ snapshots[c].created : c \in pdom(snapshots) \ ApparentlyExiledActors }) (+)
