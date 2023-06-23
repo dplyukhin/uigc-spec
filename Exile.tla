@@ -54,10 +54,10 @@ TypeOK ==
 
 InitialActorState == M!InitialActorState
 
-InitialIngressState = [
+InitialIngressState == [
     shunned      |-> FALSE,
     sendCount    |-> [a \in ActorName |-> 0],
-    sentRefs     |-> [a,b \in ActorName |-> 0]
+    sentRefs     |-> [a,b \in ActorName |-> 0],
     droppedCount |-> [a \in ActorName |-> 0],
     droppedRefs  |-> [a,b \in ActorName |-> 0]
 ]
@@ -79,14 +79,16 @@ NeitherShuns(N_1) == { N_2 \in NodeID : ~ingress[N_1, N_2].shunned /\ ~ingress[N
    every node in G. *)
 ExiledNodes == 
     LargestSubset(NodeID, LAMBDA G:
-        \A N_1 \in G, N_2 \in NodeID \ G : ingress[N_1,N_2].shunned
+        \A N_1 \in G, N_2 \in NodeID \ G: ingress[N_1,N_2].shunned
     )
-ExiledActors    == { a \in Actors : actors[a].status = "exiled" }
+NonExiledNodes  == NodeID \ ExiledNodes
+ExiledActors    == { a \in Actors : location[a] \in ExiledNodes }
+NonExiledActors == Actors \ ExiledActors
 FaultyActors    == CrashedActors \union ExiledActors
 NonFaultyActors == Actors \ FaultyActors
 
 (* A message must be admitted before being delivered. *)
-deliverableMsgsTo(a) == { a \in msgsTo(a) : a.admitted }
+deliverableMsgsTo(a) == { m \in msgsTo(a) : m.admitted }
 
 (* A message is admissible if it is not already admitted and the origin
    node is not shunned by the destination node. *)
@@ -140,18 +142,16 @@ Drop(m) ==
 
 Shun(N_1, N_2) ==
     /\ ingress' = [ingress EXCEPT ![N_1,N_2].shunned = TRUE]
-    /\ actors' = [actors EXCEPT ![a].status = IF location[a] \in ExiledNodes THEN "exiled" else @]
+    /\ actors' = actors ++ [a \in ExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]]
         \* If the node has become exiled, then all its actors are marked as such.
-    /\ snapshots' = [snapshots EXCEPT ![a] = IF location[a] \in ExiledNodes THEN null ELSE @]
     /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
 
 (* To reduce the model checking state space, the `Shun' rule can be replaced with the following `Exile'
    rule. This is safe because, for any execution in which a faction G_1 all shuns another faction G_2,
    there is an equivalent execution in which all `Shun' events happen successively.  *)
 Exile(G_1, G_2) ==
-    /\ ingress' = [ingress EXCEPT ![N_1,N_2].shunned = @ \/ (N_1 \in G_1 /\ N_2 \in G_2)]
-    /\ actors' = [actors EXCEPT ![a].status = IF location[a] \in ExiledNodes THEN "exiled" ELSE @]
-    /\ snapshots' = [snapshots EXCEPT ![a] = IF location[a] \in ExiledNodes THEN null ELSE @]
+    /\ ingress' = ingress ++ [N_1 \in G_1, N_2 \in G_2 |-> [ingress[N_1, N_2] EXCEPT !.shunned = TRUE]]
+    /\ actors' = actors ++ [a \in ExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]]
     /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
 
 IngressSnapshot(N_1, N_2) ==
@@ -185,7 +185,7 @@ Next ==
     \/ \E m \in BagToSet(msgs): Drop(m)  \* NEW: Any message can be dropped.
     \/ \E N_2 \in NodeID: \E N_1 \in NotShunnedBy(N_2): Shun(N_1,N_2) \* NEW: Nodes can shun other nodes.
     \* \/ \E G \in SUBSET NonExiledNodes: Exile(G)
-    \/ \E N_1 \in NodeID: \E N_2 \in NonExiledNodes: ingress[N_1,N_2] # ingressSnapshots[N_1,N_2] /\ IngressSnapshot(node)
+    \/ \E N_1 \in NodeID: \E N_2 \in NonExiledNodes: ingress[N_1,N_2] # ingressSnapshots[N_1,N_2] /\ IngressSnapshot(N_1,N_2)
         \* NEW: Ingress actors can take snapshots if they have not been exiled. 
         \* To reduce the TLA+ search space, actors do not take snapshots that have no effect.
 
@@ -238,7 +238,7 @@ QuiescentUpToAFaultImpliesIdle == QuiescentUpToAFault \subseteq IdleActors
    taken an ingress snapshot in which every node of G is shunned. *)
 ApparentlyExiledNodes == 
     LargestSubset(ExiledNodes, LAMBDA G:
-        \A N_1 \in G, N_2 \in NodeID \ G : 
+        \A N_1 \in G, N_2 \in NodeID \ G: 
             ingressSnapshots[N_1,N_2].shunned
     )
 ApparentlyExiledActors == { a \in Actors : location[a] \in ApparentlyExiledNodes }
@@ -323,10 +323,7 @@ AppearsQuiescent ==
 -----------------------------------------------------------------------------
 (* SOUNDNESS AND COMPLETENESS PROPERTIES *)
 
-SoundnessUpToAFault == 
-    AppearsQuiescentUpToAFault \subseteq NonExiledActors => 
-    AppearsQuiescentUpToAFault \subseteq QuiescentUpToAFault
-
+SoundnessUpToAFault == AppearsQuiescentUpToAFault \subseteq QuiescentUpToAFault
 Soundness == AppearsQuiescent \subseteq Quiescent
 
 SnapshotUpToDate(a) == M!SnapshotUpToDate(a)

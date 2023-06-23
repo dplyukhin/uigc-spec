@@ -61,7 +61,7 @@ pdom(S) == { a \in DOMAIN S : S[a] # null }
 -----------------------------------------------------------------------------
 
 (* TLA+ mechanism for computing the largest subset of D that satisfies F. *)
-LargestSubset(D, F) == D \ CHOOSE S \in SUBSET D: ~F[S]
+LargestSubset(D, F(_)) == D \ CHOOSE S \in SUBSET D: ~F(S)
 
 (* TLA+ mechanism for deterministically picking a fresh actor name.
    If ActorName is a finite set and all names have been exhausted, this operator
@@ -84,7 +84,7 @@ pastIAcqs(b) == { a \in Actors : b \in pastAcqs(a) }
 BusyActors    == { a \in Actors     : actors[a].status = "busy" }
 IdleActors    == { a \in Actors     : actors[a].status = "idle" }
 CrashedActors == { a \in Actors     : actors[a].status = "crashed" }
-Receptionists == { a \in Actors     : actors[a].isReceptionist }
+Roots         == { a \in Actors     : actors[a].isRoot }
 Blocked       == { a \in IdleActors : msgsTo(a) = {} }
 Unblocked     == Actors \ Blocked
 
