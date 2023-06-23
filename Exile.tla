@@ -323,8 +323,6 @@ AppearsQuiescent ==
 -----------------------------------------------------------------------------
 (* SOUNDNESS AND COMPLETENESS PROPERTIES *)
 
-\* TODO: Check that quiescence actually means the actor never becomes busy.
-
 SoundnessUpToAFault == 
     AppearsQuiescentUpToAFault \subseteq NonExiledActors => 
     AppearsQuiescentUpToAFault \subseteq QuiescentUpToAFault
