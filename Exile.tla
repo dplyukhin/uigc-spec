@@ -333,11 +333,11 @@ SnapshotsInsufficient ==
     CHOOSE S \in SUBSET NonExiledActors : 
     /\ \A a \in NonExiledActors : (~SnapshotUpToDate(a) => a \in S)
         \* NEW: Snapshots from exiled actors are always sufficient.
-    /\ \A a \in ExiledActors : \A b \in NonFaultyActors :
-        (a \in piacqs(b) /\ ~FinishedExile(a,b) => b \in S)
+    \* /\ \A a \in ExiledActors : \A b \in NonFaultyActors :
+    \*     (a \in piacqs(b) /\ ~FinishedExile(a,b) => b \in S)
         \* NEW: Exiled potential inverse acquaintances must be marked.
     /\ \A a \in NonExiledActors : \A b \in NonFaultyActors :
-        /\ droppedMsgsTo(b) # EmptyBag => b \in S 
+        \* /\ droppedMsgsTo(b) # EmptyBag => b \in S 
         \* NEW: Dropped messages from non-exiled nodes must be detected.
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in piacqs(b) => b \in S)
