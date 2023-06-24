@@ -264,8 +264,8 @@ Quiescent == Actors \ PotentiallyUnblocked
 (* Both definitions characterize a subset of the idle actors. The difference between the
    definitions is that quiescence up-to-a-fault is only a stable property in non-faulty
    executions. *)
-QuiescentImpliesIdle == Quiescent \subseteq IdleActors
-QuiescentUpToAFaultImpliesIdle == QuiescentUpToAFault \subseteq IdleActors
+QuiescentImpliesIdle == Quiescent \subseteq (IdleActors \union FaultyActors)
+QuiescentUpToAFaultImpliesIdle == QuiescentUpToAFault \subseteq (IdleActors \union FaultyActors)
 
 -----------------------------------------------------------------------------
 (* APPARENT GARBAGE *)
