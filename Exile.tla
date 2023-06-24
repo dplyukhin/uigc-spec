@@ -290,7 +290,7 @@ appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
 effectiveCreatedCount(a, b) == 
     sum([ c \in NonExiledSnapshots |-> snapshots[c].created[a, b]]) +
     sum([ N1 \in ApparentlyExiledNodes, N2 \in NodeID \ ApparentlyExiledNodes |-> 
-          ingressSnapshots[N1, N2].created[a, b] ])
+          ingressSnapshots[N1, N2].sentRefs[a, b] ])
 
 (* Once an actor `a' is exiled, all its references are effectively deactivated. Thus the effective 
    deactivated count is equal to the effective created count. 
