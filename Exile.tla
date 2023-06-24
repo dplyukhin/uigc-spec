@@ -8,7 +8,6 @@ EXTENDS Common, Integers, FiniteSets, Bags, TLC
 CONSTANT NodeID
 VARIABLE location, ingress, ingressSnapshots
 
-(* Import operators from the Monitors model. *)
 M == INSTANCE Monitors
 
 (* We add two fields to every message. `origin' indicates the node that produced the
@@ -16,12 +15,15 @@ M == INSTANCE Monitors
    destination node by the ingress actor. All messages between actors on distinct nodes 
    must be admitted before they can be received by the destination actor. Messages 
    between actors on the same node are admitted by default. *)
-Message == [origin: NodeID, admitted: BOOLEAN, target: ActorName, refs : SUBSET ActorName] 
+Message == [
+    origin: NodeID, 
+    admitted: BOOLEAN, 
+    target: ActorName, 
+    refs : SUBSET ActorName
+] 
 
 -----------------------------------------------------------------------------
 (* INITIALIZATION AND BASIC INVARIANTS *)
-
-MessagesTo(node) == { m \in Message : location[m.target] = node }
 
 ActorState == [
     status      : {"busy", "idle", "crashed", "exiled"}, \* NEW: Actors may become "exiled".
@@ -43,14 +45,17 @@ IngressState == [
     droppedRefs  : [ActorName \X ActorName -> Nat]
 ]
 
+(* The following invariant specifies the type of every variable
+   in the configuration. It also asserts that every actor, once
+   spawned, has a location. *)
 TypeOK == 
   /\ actors           \in [ActorName -> ActorState \cup {null}]
   /\ snapshots        \in [ActorName -> ActorState \cup {null}]
   /\ BagToSet(msgs)   \subseteq Message
-  /\ location         \in [ActorName -> NodeID \cup {null}] \* NEW
+  /\ location         \in [ActorName -> NodeID \cup {null}]  \* NEW
   /\ ingress          \in [NodeID \X NodeID -> IngressState] \* NEW
   /\ ingressSnapshots \in [NodeID \X NodeID -> IngressState] \* NEW
-  /\ \A a \in Actors: location[a] # null \* Every actor has a location upon being spawned.
+  /\ \A a \in Actors: location[a] # null 
 
 InitialActorState == M!InitialActorState
 
@@ -64,22 +69,23 @@ InitialIngressState == [
 
 InitialConfiguration(initialActor, node, actorState) == 
     /\ M!InitialConfiguration(initialActor, actorState)
-    /\ ingress          = [N_1, N_2 \in NodeID |-> InitialIngressState]
-    /\ ingressSnapshots = [N_1, N_2 \in NodeID |-> InitialIngressState]
+    /\ ingress          = [N1, N2 \in NodeID |-> InitialIngressState]
+    /\ ingressSnapshots = [N1, N2 \in NodeID |-> InitialIngressState]
     /\ location         = [a \in ActorName |-> null] ++ (initialActor :> node)
 
 -----------------------------------------------------------------------------
 (* SET DEFINITIONS *)
 
-ShunnedBy(N_2) == { N_1 \in NodeID : ingress[N_1,N_2].shunned }
-NotShunnedBy(N_1) == NodeID \ ShunnedBy(N_1)
-NeitherShuns(N_1) == { N_2 \in NodeID : ~ingress[N_1, N_2].shunned /\ ~ingress[N_2, N_1].shunned }
+ShunnedBy(N2)    == { N1 \in NodeID : ingress[N1,N2].shunned }
+NotShunnedBy(N1) == NodeID \ ShunnedBy(N1)
+NeitherShuns(N1) == { N2 \in NodeID : ~ingress[N1, N2].shunned /\ 
+                                      ~ingress[N2, N1].shunned }
 
 (* A faction of nodes G is exiled if every node outside of G has shunned 
    every node in G. *)
 ExiledNodes == 
     LargestSubset(NodeID, LAMBDA G:
-        \A N_1 \in G, N_2 \in NodeID \ G: ingress[N_1,N_2].shunned
+        \A N1 \in G, N2 \in NodeID \ G: ingress[N1,N2].shunned
     )
 NonExiledNodes  == NodeID \ ExiledNodes
 ExiledActors    == { a \in Actors : location[a] \in ExiledNodes }
@@ -92,8 +98,8 @@ deliverableMsgsTo(a) == { m \in msgsTo(a) : m.admitted }
 
 (* A message is admissible if it is not already admitted and the origin
    node is not shunned by the destination node. *)
-AdmissibleMsgs ==
-    { m \in BagToSet(msgs) : ~m.admitted /\ ~ingress[m.origin, location[m.target]].shunned }
+AdmissibleMsgs == { m \in BagToSet(msgs) : 
+    ~m.admitted /\ ~ingress[m.origin, location[m.target]].shunned }
         
 -----------------------------------------------------------------------------
 (* TRANSITION RULES *)
@@ -116,11 +122,12 @@ Spawn(a,b,state,N) ==
     /\ UNCHANGED <<msgs,ingress,ingressSnapshots>>
 
 Admit(m) ==
-    LET N_1 == m.origin
-        N_2 == location[m.target] 
+    LET N1 == m.origin
+        N2 == location[m.target] 
         B   == [ b,c \in {m.target} \X m.refs |-> 1 ]
     IN
-    /\ ingress' = [ingress EXCEPT ![N_1,N_2].sendCount = @ + 1, ![N_1,N_2].sentRefs = @ ++ B]
+    /\ ingress' = [ingress EXCEPT ![N1,N2].sendCount = @ + 1, 
+                                  ![N1,N2].sentRefs = @ ++ B]
     /\ msgs' = replace(msgs, m, [m EXCEPT !.admitted = TRUE])
     /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
@@ -128,66 +135,84 @@ Admit(m) ==
    If the ingress actor learns that a non-admitted message has been dropped, then the message is
    added both to the sent bag and the dropped bag. *)
 Drop(m) == 
-    LET N_1 == m.origin 
-        N_2 == location[m.target]
+    LET N1 == m.origin 
+        N2 == location[m.target]
         B   == [ b,c \in {m.target} \X m.refs |-> 1 ]
     IN
     /\ msgs' = remove(msgs, m)
     /\ IF m.admitted THEN 
-           ingress' = [ingress EXCEPT ![N_1,N_2].droppedCount = @ + 1, ![N_1,N_2].droppedRefs = @ ++ B]
+           ingress' = [ingress EXCEPT ![N1,N2].droppedCount = @ + 1, 
+                                      ![N1,N2].droppedRefs = @ ++ B]
        ELSE
-           ingress' = [ingress EXCEPT ![N_1,N_2].droppedCount = @ + 1, ![N_1,N_2].droppedRefs = @ ++ B,
-                                      ![N_1,N_2].sendCount    = @ + 1, ![N_1,N_2].sentRefs    = @ + B]
+           ingress' = [ingress EXCEPT ![N1,N2].droppedCount = @ + 1, 
+                                      ![N1,N2].droppedRefs  = @ ++ B,
+                                      ![N1,N2].sendCount    = @ + 1, 
+                                      ![N1,N2].sentRefs     = @ + B]
     /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
-Shun(N_1, N_2) ==
-    /\ ingress' = [ingress EXCEPT ![N_1,N_2].shunned = TRUE]
-    /\ actors' = actors ++ [a \in ExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]]
-        \* If the node has become exiled, then all its actors are marked as such.
+(* When N2 shuns N1, the ingress actor at N2 is updated. If N1 is now
+   exiled, we mark the actors as "exiled" to prevent them from taking
+   snapshots. *)
+Shun(N1, N2) ==
+    /\ ingress' = [ingress EXCEPT ![N1,N2].shunned = TRUE]
+    /\ actors' = actors ++ 
+        [a \in ExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]]
     /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
 
 (* To reduce the model checking state space, the `Shun' rule can be replaced with the following `Exile'
    rule. This is safe because, for any execution in which a faction G_1 all shuns another faction G_2,
    there is an equivalent execution in which all `Shun' events happen successively.  *)
 Exile(G_1, G_2) ==
-    /\ ingress' = ingress ++ [N_1 \in G_1, N_2 \in G_2 |-> [ingress[N_1, N_2] EXCEPT !.shunned = TRUE]]
-    /\ actors' = actors ++ [a \in ExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]]
+    /\ ingress' = ingress ++ 
+        [N1 \in G_1, N2 \in G_2 |-> [ingress[N1, N2] EXCEPT !.shunned = TRUE]]
+    /\ actors' = actors ++ 
+        [a \in ExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]]
     /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
 
-IngressSnapshot(N_1, N_2) ==
-    /\ ingressSnapshots' = [ingressSnapshots EXCEPT ![N_1,N_2] = ingress[N_1,N_2]]
+(* Ingress actors can record snapshots. *)
+IngressSnapshot(N1, N2) ==
+    /\ ingressSnapshots' = [ingressSnapshots EXCEPT ![N1,N2] = ingress[N1,N2]]
     /\ UNCHANGED <<actors,msgs,snapshots,ingress,location>>
 
-Init == 
-    InitialConfiguration(CHOOSE a \in ActorName: TRUE, CHOOSE n \in NodeID: TRUE, InitialActorState)
+-----------------------------------------------------------------------------
+
+Init == InitialConfiguration(
+    CHOOSE a \in ActorName: TRUE, \* An arbitrary name for the initial actor.
+    CHOOSE n \in NodeID: TRUE,    \* An arbitrary location for the actor.
+    InitialActorState             \* The initial actor's state.
+)
 
 Next ==
     \/ \E a \in BusyActors: Idle(a)
     \/ \E a \in BusyActors: \E b \in FreshActorName: \E N \in NeitherShuns(location[a]):
        Spawn(a,b,InitialActorState,N)
-        \* NEW: Actors are spawned onto a specific (non-shunned) node.
+        \* UPDATE: Actors are spawned onto a specific (non-shunned) node.
     \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
     \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
         Send(a,b,[origin |-> location[a], admitted |-> location[b] = location[a], 
                   target |-> b, refs |-> refs])
-        \* NEW: Messages are tagged with node locations and cannot be sent to faulty actors.
+        \* UPDATE: Messages are tagged with node locations and cannot be sent to faulty actors.
     \/ \E a \in IdleActors: \E m \in deliverableMsgsTo(a): Receive(a,m)
     \/ \E a \in IdleActors \union BusyActors \union CrashedActors: Snapshot(a)
-        \* NB: Exiled actors do not take snapshots.
+        \* NOTE: Exiled actors do not take snapshots.
     \/ \E a \in BusyActors: Crash(a)
     \/ \E a \in BusyActors: \E b \in acqs(a): Monitor(a,b)
     \/ \E a \in IdleActors: \E b \in FaultyActors \intersect M!monitoredBy(a): Notify(a,b)
-        \* NEW: Actors are notified when monitored actors are exiled.
+        \* UPDATE: Actors are notified when monitored actors are exiled.
     \/ \E a \in BusyActors \ Roots: Register(a)
     \/ \E a \in IdleActors \intersect Roots: Wakeup(a)
     \/ \E a \in BusyActors \intersect Roots: Unregister(a)
-    \/ \E m \in AdmissibleMsgs: Admit(m) \* NEW: Any admissible message can be admitted.
-    \/ \E m \in BagToSet(msgs): Drop(m)  \* NEW: Any message can be dropped.
-    \/ \E N_2 \in NodeID: \E N_1 \in NotShunnedBy(N_2): Shun(N_1,N_2) \* NEW: Nodes can shun other nodes.
-    \* \/ \E G \in SUBSET NonExiledNodes: Exile(G)
-    \/ \E N_1 \in NodeID: \E N_2 \in NonExiledNodes: ingress[N_1,N_2] # ingressSnapshots[N_1,N_2] /\ IngressSnapshot(N_1,N_2)
-        \* NEW: Ingress actors can take snapshots if they have not been exiled. 
-        \* To reduce the TLA+ search space, actors do not take snapshots that have no effect.
+    \/ \E m \in AdmissibleMsgs: Admit(m) \* NEW
+    \/ \E m \in BagToSet(msgs): Drop(m)  \* NEW
+    \/ \E N2 \in NodeID: \E N1 \in NotShunnedBy(N2): Shun(N1,N2) \* NEW
+    \/ \E N1 \in NodeID: \E N2 \in NonExiledNodes: 
+        ingress[N1,N2] # ingressSnapshots[N1,N2] /\ IngressSnapshot(N1,N2) \* NEW
+        \* To reduce the TLA+ search space, ingress actors do not take snapshots if
+        \* their state has not changed.
+
+\* The Shun rule above can be replaced with the following Exile rule without
+\* loss of generality for faster model checking:
+\* \/ \E G \in SUBSET NonExiledNodes: Exile(G)
 
 -----------------------------------------------------------------------------
 (* ACTUAL GARBAGE *)
@@ -238,8 +263,8 @@ QuiescentUpToAFaultImpliesIdle == QuiescentUpToAFault \subseteq IdleActors
    taken an ingress snapshot in which every node of G is shunned. *)
 ApparentlyExiledNodes == 
     LargestSubset(ExiledNodes, LAMBDA G:
-        \A N_1 \in G, N_2 \in NodeID \ G: 
-            ingressSnapshots[N_1,N_2].shunned
+        \A N1 \in G, N2 \in NodeID \ G: 
+            ingressSnapshots[N1,N2].shunned
     )
 ApparentlyExiledActors == { a \in Actors : location[a] \in ApparentlyExiledNodes }
 NonExiledSnapshots == Snapshots \ ApparentlyExiledActors
@@ -253,7 +278,8 @@ appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
    and (b) the created counts recorded by ingress actors for exiled nodes. *)
 effectiveCreatedCount(a, b) == 
     sum([ c \in NonExiledSnapshots |-> snapshots[c].created[a, b]]) +
-    sum([ N_1 \in ApparentlyExiledNodes, N_2 \in NodeID \ ApparentlyExiledNodes |-> ingressSnapshots[N_1, N_2].created[a, b] ])
+    sum([ N1 \in ApparentlyExiledNodes, N2 \in NodeID \ ApparentlyExiledNodes |-> 
+          ingressSnapshots[N1, N2].created[a, b] ])
 
 (* Once an actor `a' is exiled, all its references are effectively deactivated. Thus the effective 
    deactivated count is equal to the effective created count. 
@@ -274,7 +300,7 @@ effectiveDeactivatedCount(a, b) ==
    and the number of messages for `b' that entered the ingress actor from apparently exiled nodes. *)
 effectiveSendCount(b) == 
     sum([ a \in NonExiledSnapshots |-> snapshots[a].sendCount[b]]) +
-    sum([ N_1 \in ApparentlyExiledNodes |-> ingressSnapshots[N_1, location[b]].sendCount[b] ])
+    sum([ N1 \in ApparentlyExiledNodes |-> ingressSnapshots[N1, location[b]].sendCount[b] ])
 
 (* All messages to actor `b' that were dropped are effectively received. Thus an actor's
    effective receive count is the sum of its actual receive count and the number of 
@@ -287,16 +313,19 @@ effectiveReceiveCount(b) ==
    Once an actor appears exiled, it is no longer considered a historical or potential inverse
    acquaintance. *)
 historicalIAcqs(c) == { b \in ActorName : effectiveCreatedCount(b, c) > 0 }
-apparentIAcqs(c)   == { b \in ActorName : effectiveCreatedCount(b, c) > effectiveDeactivatedCount(b, c) }
+apparentIAcqs(c)   == { b \in ActorName : 
+    effectiveCreatedCount(b, c) > effectiveDeactivatedCount(b, c) }
 
 AppearsIdle      == { a \in NonExiledSnapshots : snapshots[a].status = "idle" }
 AppearsClosed    == { b \in NonExiledSnapshots : historicalIAcqs(b) \subseteq Snapshots }
-AppearsBlocked   == { b \in AppearsIdle \cap AppearsClosed : effectiveSendCount(b) = effectiveReceiveCount(b) }
+AppearsBlocked   == { b \in AppearsIdle \cap AppearsClosed : 
+    effectiveSendCount(b) = effectiveReceiveCount(b) }
 AppearsUnblocked == NonExiledSnapshots \ AppearsBlocked
 
 appearsPotentiallyUnblockedUpToAFault(S) == 
     /\ Snapshots \ (AppearsClosed \union AppearsCrashed) \subseteq S
-    /\ AppearsRoot \ AppearsCrashed \subseteq S \* NEW: Exiled actors still appear potentially unblocked.
+    /\ AppearsRoot \ AppearsCrashed \subseteq S 
+        \* NEW: Exiled actors still appear potentially unblocked.
     /\ AppearsUnblocked \ AppearsCrashed \subseteq S
     /\ \A a \in Snapshots, b \in Snapshots \ AppearsCrashed :
         /\ (a \in S \intersect apparentIAcqs(b) => b \in S)
@@ -310,12 +339,14 @@ appearsPotentiallyUnblocked(S) ==
             \* NEW: Actors that monitor remote actors are not garbage.
 
 AppearsPotentiallyUnblockedUpToAFault == 
-    CHOOSE S \in SUBSET Snapshots \ AppearsCrashed : appearsPotentiallyUnblockedUpToAFault(S)
+    CHOOSE S \in SUBSET Snapshots \ AppearsCrashed : 
+    appearsPotentiallyUnblockedUpToAFault(S)
 AppearsQuiescentUpToAFault == 
     (Snapshots \ ExiledActors) \ AppearsPotentiallyUnblockedUpToAFault
 
 AppearsPotentiallyUnblocked == 
-    CHOOSE S \in SUBSET Snapshots \ AppearsCrashed : appearsPotentiallyUnblocked(S)
+    CHOOSE S \in SUBSET Snapshots \ AppearsCrashed :
+    appearsPotentiallyUnblocked(S)
 AppearsQuiescent == 
     (Snapshots \ ExiledActors) \ AppearsPotentiallyUnblocked
 
