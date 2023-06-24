@@ -71,7 +71,7 @@ InitialConfiguration(initialActor, node, actorState) ==
     /\ M!InitialConfiguration(initialActor, actorState)
     /\ ingress          = [N1, N2 \in NodeID |-> InitialIngressState]
     /\ ingressSnapshots = [N1, N2 \in NodeID |-> InitialIngressState]
-    /\ location         = [a \in ActorName |-> null] ++ (initialActor :> node)
+    /\ location         = (initialActor :> node) @@ [a \in ActorName |-> null]
 
 -----------------------------------------------------------------------------
 (* SET DEFINITIONS *)
@@ -155,18 +155,18 @@ Drop(m) ==
    snapshots. *)
 Shun(N1, N2) ==
     /\ ingress' = [ingress EXCEPT ![N1,N2].shunned = TRUE]
-    /\ actors' = actors ++ 
-        [a \in ExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]]
+    /\ actors' =
+        [a \in ExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]] @@ actors
     /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
 
 (* To reduce the model checking state space, the `Shun' rule can be replaced with the following `Exile'
    rule. This is safe because, for any execution in which a faction G_1 all shuns another faction G_2,
    there is an equivalent execution in which all `Shun' events happen successively.  *)
 Exile(G_1, G_2) ==
-    /\ ingress' = ingress ++ 
-        [N1 \in G_1, N2 \in G_2 |-> [ingress[N1, N2] EXCEPT !.shunned = TRUE]]
-    /\ actors' = actors ++ 
-        [a \in ExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]]
+    /\ ingress' =
+        [N1 \in G_1, N2 \in G_2 |-> [ingress[N1, N2] EXCEPT !.shunned = TRUE]] @@ ingress
+    /\ actors' =
+        [a \in ExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]] @@ actors
     /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
 
 (* Ingress actors can record snapshots. *)
