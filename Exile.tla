@@ -328,7 +328,8 @@ apparentIAcqs(c)   == { b \in Actors :
     effectiveCreatedCount(b, c) > effectiveDeactivatedCount(b, c) }
 
 AppearsIdle      == { a \in NonExiledSnapshots : snapshots[a].status = "idle" }
-AppearsClosed    == { b \in NonExiledSnapshots : historicalIAcqs(b) \subseteq Snapshots }
+AppearsClosed    == { b \in NonExiledSnapshots : 
+    historicalIAcqs(b) \subseteq Snapshots /\ appearsMonitoredBy(b) \subseteq Snapshots }
 AppearsBlocked   == { b \in AppearsIdle \cap AppearsClosed : 
     effectiveSendCount(b) = effectiveReceiveCount(b) }
 AppearsUnblocked == NonExiledSnapshots \ AppearsBlocked
