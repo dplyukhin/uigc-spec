@@ -173,9 +173,9 @@ Shun(N1, N2) ==
 (* To reduce the model checking state space, the `Shun' rule can be replaced with the following `Exile'
    rule. This is safe because, for any execution in which a faction G_1 all shuns another faction G_2,
    there is an equivalent execution in which all `Shun' events happen successively.  *)
-Exile(G_1, G_2) ==
+Exile(G1, G2) ==
     /\ ingress' =
-        [N1 \in G_1, N2 \in G_2 |-> [ingress[N1, N2] EXCEPT !.shunned = TRUE]] @@ ingress
+        [N1 \in G1, N2 \in G2 |-> [ingress[N1, N2] EXCEPT !.shunned = TRUE]] @@ ingress
     /\ actors' =
         [a \in NewlyExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]] @@ actors
     /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
@@ -223,7 +223,7 @@ Next ==
 
 \* The Shun rule above can be replaced with the following Exile rule without
 \* loss of generality for faster model checking:
-\* \/ \E G \in SUBSET NonExiledNodes: Exile(G, NonExiledNodes \ G)
+\* \/ \E G \in SUBSET NonExiledNodes: G # {} /\ G # NonExiledNodes /\ Exile(G, NonExiledNodes \ G)
 
 -----------------------------------------------------------------------------
 (* ACTUAL GARBAGE *)
