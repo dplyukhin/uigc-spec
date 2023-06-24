@@ -81,12 +81,14 @@ NotShunnedBy(N1) == NodeID \ ShunnedBy(N1)
 NeitherShuns(N1) == { N2 \in NodeID : ~ingress[N1, N2].shunned /\ 
                                       ~ingress[N2, N1].shunned }
 
-(* A faction of nodes G is exiled if every node outside of G has shunned 
-   every node in G. *)
+(* The exiled nodes are the largest nontrivial faction where every non-exiled
+   node has shunned every exiled node. *)
 ExiledNodes == 
     LargestSubset(NodeID, LAMBDA G:
-        \A N1 \in G, N2 \in NodeID \ G: ingress[N1,N2].shunned
+        /\ G # NodeID
+        /\ \A N1 \in G, N2 \in NodeID \ G: ingress[N1,N2].shunned
     )
+
 NonExiledNodes  == NodeID \ ExiledNodes
 ExiledActors    == { a \in Actors : location[a] \in ExiledNodes }
 NonExiledActors == Actors \ ExiledActors
@@ -264,9 +266,9 @@ QuiescentUpToAFaultImpliesIdle == QuiescentUpToAFault \subseteq IdleActors
 (* A faction of nodes G is apparently exiled if every node outside of G has
    taken an ingress snapshot in which every node of G is shunned. *)
 ApparentlyExiledNodes == 
-    LargestSubset(ExiledNodes, LAMBDA G:
-        \A N1 \in G, N2 \in NodeID \ G: 
-            ingressSnapshots[N1,N2].shunned
+    LargestSubset(NodeID, LAMBDA G:
+        /\ G # NodeID
+        /\ \A N1 \in G, N2 \in NodeID \ G: ingressSnapshots[N1,N2].shunned
     )
 ApparentlyExiledActors == { a \in Actors : location[a] \in ApparentlyExiledNodes }
 NonExiledSnapshots == Snapshots \ ApparentlyExiledActors

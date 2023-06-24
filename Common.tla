@@ -61,7 +61,7 @@ pdom(S) == { a \in DOMAIN S : S[a] # null }
 -----------------------------------------------------------------------------
 
 (* TLA+ mechanism for computing the largest subset of D that satisfies F. *)
-LargestSubset(D, F(_)) == D \ CHOOSE S \in SUBSET D: ~F(S)
+LargestSubset(D, F(_)) == D \ CHOOSE S \in SUBSET D: F(D \ S)
 
 (* TLA+ mechanism for deterministically picking a fresh actor name.
    If ActorName is a finite set and all names have been exhausted, this operator
