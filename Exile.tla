@@ -149,7 +149,7 @@ Drop(m) ==
            ingress' = [ingress EXCEPT ![N1,N2].droppedCount[a] = @ + 1, 
                                       ![N1,N2].droppedRefs     = @ ++ B,
                                       ![N1,N2].sendCount[a]    = @ + 1, 
-                                      ![N1,N2].sentRefs        = @ + B]
+                                      ![N1,N2].sentRefs        = @ ++ B]
     /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
 (* When N2 shuns N1, the ingress actor at N2 is updated. If N1 is now
