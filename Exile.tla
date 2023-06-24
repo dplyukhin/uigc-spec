@@ -127,7 +127,7 @@ Admit(m) ==
         B   == [ b,c \in {m.target} \X m.refs |-> 1 ]
     IN
     /\ ingress' = [ingress EXCEPT ![N1,N2].sendCount = @ + 1, 
-                                  ![N1,N2].sentRefs = @ ++ B]
+                                  ![N1,N2].sentRefs  = @ ++ B]
     /\ msgs' = replace(msgs, m, [m EXCEPT !.admitted = TRUE])
     /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
@@ -135,19 +135,20 @@ Admit(m) ==
    If the ingress actor learns that a non-admitted message has been dropped, then the message is
    added both to the sent bag and the dropped bag. *)
 Drop(m) == 
-    LET N1 == m.origin 
-        N2 == location[m.target]
-        B   == [ b,c \in {m.target} \X m.refs |-> 1 ]
+    LET a  == m.target
+        N1 == m.origin 
+        N2 == location[a]
+        B  == [ b,c \in {a} \X m.refs |-> 1 ]
     IN
     /\ msgs' = remove(msgs, m)
     /\ IF m.admitted THEN 
-           ingress' = [ingress EXCEPT ![N1,N2].droppedCount = @ + 1, 
-                                      ![N1,N2].droppedRefs = @ ++ B]
+           ingress' = [ingress EXCEPT ![N1,N2].droppedCount[a] = @ + 1, 
+                                      ![N1,N2].droppedRefs     = @ ++ B]
        ELSE
-           ingress' = [ingress EXCEPT ![N1,N2].droppedCount = @ + 1, 
-                                      ![N1,N2].droppedRefs  = @ ++ B,
-                                      ![N1,N2].sendCount    = @ + 1, 
-                                      ![N1,N2].sentRefs     = @ + B]
+           ingress' = [ingress EXCEPT ![N1,N2].droppedCount[a] = @ + 1, 
+                                      ![N1,N2].droppedRefs     = @ ++ B,
+                                      ![N1,N2].sendCount[a]    = @ + 1, 
+                                      ![N1,N2].sentRefs        = @ + B]
     /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
 (* When N2 shuns N1, the ingress actor at N2 is updated. If N1 is now
