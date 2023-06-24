@@ -316,8 +316,8 @@ effectiveReceiveCount(b) ==
 (* NEW: Historical and apparent acquaintances now incorporate ingress snapshot information. 
    Once an actor appears exiled, it is no longer considered a historical or potential inverse
    acquaintance. *)
-historicalIAcqs(c) == { b \in ActorName : effectiveCreatedCount(b, c) > 0 }
-apparentIAcqs(c)   == { b \in ActorName : 
+historicalIAcqs(c) == { b \in Actors : effectiveCreatedCount(b, c) > 0 }
+apparentIAcqs(c)   == { b \in Actors : 
     effectiveCreatedCount(b, c) > effectiveDeactivatedCount(b, c) }
 
 AppearsIdle      == { a \in NonExiledSnapshots : snapshots[a].status = "idle" }
