@@ -384,7 +384,7 @@ SnapshotsInsufficient ==
         /\ LET N1 == location[a]
                N2 == location[b]
            IN
-           ingress[N1,N2].droppedCount # ingressSnapshots[N1,N2].droppedCount => b \in S 
+           ingress[N1,N2].droppedCount[b] # ingressSnapshots[N1,N2].droppedCount[b] => b \in S 
             \* NEW: Dropped messages from non-exiled nodes must be accounted for.
 
 SnapshotsSufficient == Actors \ SnapshotsInsufficient
