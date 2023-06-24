@@ -374,30 +374,27 @@ RecentEnough(a,b) == M!RecentEnough(a,b)
 
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET NonExiledActors : 
-    /\ \A a \in NonExiledActors : (~SnapshotUpToDate(a) => a \in S)
+    /\ \A a \in NonExiledActors :
+        ~SnapshotUpToDate(a) => a \in S
         \* NEW: Snapshots from exiled actors are always sufficient.
-    \* /\ \A a \in ExiledActors : \A b \in NonFaultyActors :
-    \*     (a \in piacqs(b) /\ ~FinishedExile(a,b) => b \in S)
-        \* NEW: Exiled potential inverse acquaintances must be marked.
+    /\ \A a \in ExiledActors : \A b \in NonFaultyActors :
+        a \in piacqs(b) \ ApparentlyExiledActors => b \in S
+        \* NEW: Exiled potential inverse acquaintances must be appear exiled.
     /\ \A a \in NonExiledActors : \A b \in NonFaultyActors :
-        \* /\ droppedMsgsTo(b) # EmptyBag => b \in S 
-        \* NEW: Dropped messages from non-exiled nodes must be detected.
+        LET N1 == location[a]
+            N2 == location[b] IN
+        /\ ingress[N1,N2].droppedCount # ingressSnapshots[N1,N2].droppedCount => b \in S 
+            \* NEW: Dropped messages from non-exiled nodes must be accounted for.
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in piacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
 
 SnapshotsSufficient == Actors \ SnapshotsInsufficient
 
-CompletenessUpToAFault == 
-    (QuiescentUpToAFault \intersect SnapshotsSufficient) \subseteq AppearsQuiescentUpToAFault
+SpecUpToAFault == 
+    (QuiescentUpToAFault \intersect SnapshotsSufficient) = AppearsQuiescentUpToAFault
 
-Completeness == (Quiescent \intersect SnapshotsSufficient) \subseteq AppearsQuiescent
-
------------------------------------------------------------------------------
-(* OTHER PROPERTIES: *)
-
-SufficientIsTight == AppearsQuiescent \subseteq SnapshotsSufficient
-SufficientIsTightUpToAFault == AppearsQuiescentUpToAFault \subseteq SnapshotsSufficient
+Spec == (Quiescent \intersect SnapshotsSufficient) = AppearsQuiescent
 
 -----------------------------------------------------------------------------
 (* TEST CASES: These invariants do not hold because garbage can be detected. *)
