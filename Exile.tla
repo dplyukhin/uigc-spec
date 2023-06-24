@@ -77,7 +77,7 @@ InitialConfiguration(initialActor, node, actorState) ==
 (* SET DEFINITIONS *)
 
 ShunnedBy(N2)    == { N1 \in NodeID : ingress[N1,N2].shunned }
-NotShunnedBy(N1) == NodeID \ ShunnedBy(N1)
+ShunnableBy(N1)  == (NodeID \ {N1}) \ ShunnedBy(N1)
 NeitherShuns(N1) == { N2 \in NodeID : ~ingress[N1, N2].shunned /\ 
                                       ~ingress[N2, N1].shunned }
 
@@ -88,12 +88,19 @@ ExiledNodes ==
         /\ G # NodeID
         /\ \A N1 \in G, N2 \in NodeID \ G: ingress[N1,N2].shunned
     )
-
+    
 NonExiledNodes  == NodeID \ ExiledNodes
 ExiledActors    == { a \in Actors : location[a] \in ExiledNodes }
 NonExiledActors == Actors \ ExiledActors
 FaultyActors    == CrashedActors \union ExiledActors
 NonFaultyActors == Actors \ FaultyActors
+
+NewlyExiledNodes == 
+    LargestSubset(NodeID, LAMBDA G:
+        /\ G # NodeID
+        /\ \A N1 \in G, N2 \in NodeID \ G: ingress'[N1,N2].shunned
+    )
+NewlyExiledActors == { a \in Actors : location[a] \in NewlyExiledNodes }
 
 (* A message must be admitted before being delivered. *)
 deliverableMsgsTo(a) == { m \in msgsTo(a) : m.admitted }
@@ -160,7 +167,7 @@ Drop(m) ==
 Shun(N1, N2) ==
     /\ ingress' = [ingress EXCEPT ![N1,N2].shunned = TRUE]
     /\ actors' =
-        [a \in ExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]] @@ actors
+        [a \in NewlyExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]] @@ actors
     /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
 
 (* To reduce the model checking state space, the `Shun' rule can be replaced with the following `Exile'
@@ -170,7 +177,7 @@ Exile(G_1, G_2) ==
     /\ ingress' =
         [N1 \in G_1, N2 \in G_2 |-> [ingress[N1, N2] EXCEPT !.shunned = TRUE]] @@ ingress
     /\ actors' =
-        [a \in ExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]] @@ actors
+        [a \in NewlyExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]] @@ actors
     /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
 
 (* Ingress actors can record snapshots. *)
@@ -208,7 +215,7 @@ Next ==
     \/ \E a \in BusyActors \intersect Roots: Unregister(a)
     \/ \E m \in AdmissibleMsgs: Admit(m) \* NEW
     \/ \E m \in BagToSet(msgs): Drop(m)  \* NEW
-    \/ \E N2 \in NodeID: \E N1 \in NotShunnedBy(N2): Shun(N1,N2) \* NEW
+    \/ \E N2 \in NodeID: \E N1 \in ShunnableBy(N2): Shun(N1,N2) \* NEW
     \/ \E N1 \in NodeID: \E N2 \in NonExiledNodes: 
         ingress[N1,N2] # ingressSnapshots[N1,N2] /\ IngressSnapshot(N1,N2) \* NEW
         \* To reduce the TLA+ search space, ingress actors do not take snapshots if
@@ -394,12 +401,24 @@ SufficientIsTightUpToAFault == AppearsQuiescentUpToAFault \subseteq SnapshotsSuf
 -----------------------------------------------------------------------------
 (* TEST CASES: These invariants do not hold because garbage can be detected. *)
 
+ActorsCanBeSpawned == Cardinality(Actors) < 4
+MessagesCanBeReceived == \A a \in Actors: actors[a].recvCount = 0
+SelfMessagesCanBeReceived == \A a \in Actors: actors[a].recvCount = 0 \/ Cardinality(Actors) > 1
+ActorsCanBeExiled == \A a \in Actors: actors[a].status # "exiled"
+
 (* This invariant fails, showing that the set of quiescent actors is nonempty. *)
-GarbageExists == ~(Quiescent = {})
+GarbageExists == Quiescent = {}
+NonFaultyGarbageExists == Quiescent \intersect NonFaultyActors = {}
+
+GarbageUpToAFaultExists == QuiescentUpToAFault = {}
+NonFaultyGarbageUpToAFaultExists == QuiescentUpToAFault \intersect NonFaultyActors = {}
 
 (* This invariant fails, showing that quiescence can be detected and that it
    is possible to obtain a sufficient set of snapshots. *)
-GarbageIsDetected == ~(AppearsQuiescent = {})
+GarbageIsDetected == AppearsQuiescent = {}
+NonFaultyGarbageIsDetected == AppearsQuiescent \ AppearsCrashed = {}
+GarbageIsDetectedUpToAFault == AppearsQuiescentUpToAFault = {}
+NonFaultyGarbageIsDetectedUpToAFault == AppearsQuiescentUpToAFault \ AppearsCrashed = {}
 
 (* This invariant fails, showing that quiescent actors can have crashed inverse
    acquaintances. *)
