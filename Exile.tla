@@ -373,27 +373,28 @@ SnapshotUpToDate(a) == M!SnapshotUpToDate(a)
 RecentEnough(a,b) == M!RecentEnough(a,b)
 
 SnapshotsInsufficient == 
-    CHOOSE S \in SUBSET Actors :
-    /\ \A a \in ExiledActors:
-        a \notin ApparentlyExiledActors => a \in S 
-        \* NEW: Exiled actors require recent enough snapshots from ingress actors.
-    /\ \A a \in NonExiledActors :
-        ~SnapshotUpToDate(a) => a \in S
-    /\ \A a \in NonExiledActors : \A b \in NonFaultyActors :
-        LET N1 == location[a]
-            N2 == location[b] IN
-        /\ ingress[N1,N2].droppedCount # ingressSnapshots[N1,N2].droppedCount => b \in S 
-            \* NEW: Dropped messages from non-exiled nodes must be accounted for.
+    CHOOSE S \in SUBSET Actors : \A a \in Actors : a \notin ApparentlyExiledActors =>
+        \* NEW: If an actor is exiled, it suffices to have snapshots from ingress actors.
+    /\ (~SnapshotUpToDate(a) => a \in S)
+    /\ \A b \in NonFaultyActors :
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in piacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
+        /\ LET N1 == location[a]
+               N2 == location[b]
+           IN
+           ingress[N1,N2].droppedCount # ingressSnapshots[N1,N2].droppedCount => b \in S 
+            \* NEW: Dropped messages from non-exiled nodes must be accounted for.
 
 SnapshotsSufficient == Actors \ SnapshotsInsufficient
 
 SpecUpToAFault == 
-    (QuiescentUpToAFault \intersect SnapshotsSufficient) = AppearsQuiescentUpToAFault
+    QuiescentUpToAFault \intersect SnapshotsSufficient \intersect NonExiledActors = 
+    AppearsQuiescentUpToAFault \intersect NonExiledActors
 
-Spec == (Quiescent \intersect SnapshotsSufficient) = AppearsQuiescent
+Spec == 
+    Quiescent \intersect SnapshotsSufficient \intersect NonExiledActors = 
+    AppearsQuiescent \intersect NonExiledActors
 
 -----------------------------------------------------------------------------
 (* TEST CASES: These invariants do not hold because garbage can be detected. *)
