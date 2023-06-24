@@ -335,11 +335,11 @@ AppearsBlocked   == { b \in AppearsIdle \cap AppearsClosed :
 AppearsUnblocked == NonExiledSnapshots \ AppearsBlocked
 
 appearsPotentiallyUnblockedUpToAFault(S) == 
-    /\ Snapshots \ (AppearsClosed \union AppearsCrashed) \subseteq S
-    /\ AppearsRoot \ AppearsCrashed \subseteq S 
+    /\ Snapshots \ (AppearsClosed \union AppearsFaulty) \subseteq S
+    /\ AppearsRoot \ AppearsFaulty \subseteq S 
         \* NEW: Exiled actors still appear potentially unblocked.
-    /\ AppearsUnblocked \ AppearsCrashed \subseteq S
-    /\ \A a \in Snapshots, b \in Snapshots \ AppearsCrashed :
+    /\ AppearsUnblocked \ AppearsFaulty \subseteq S
+    /\ \A a \in Snapshots, b \in Snapshots \ AppearsFaulty :
         /\ (a \in S \intersect apparentIAcqs(b) => b \in S)
         /\ (a \in (S \union AppearsFaulty) \intersect appearsMonitoredBy(b) => b \in S)
             \* NEW: An actor is not garbage if it monitors an exiled actor.
@@ -354,13 +354,13 @@ AppearsPotentiallyUnblockedUpToAFault ==
     CHOOSE S \in SUBSET Snapshots \ AppearsCrashed : 
     appearsPotentiallyUnblockedUpToAFault(S)
 AppearsQuiescentUpToAFault == 
-    (Snapshots \ ExiledActors) \ AppearsPotentiallyUnblockedUpToAFault
+    Snapshots \ AppearsPotentiallyUnblockedUpToAFault
 
 AppearsPotentiallyUnblocked == 
     CHOOSE S \in SUBSET Snapshots \ AppearsCrashed :
     appearsPotentiallyUnblocked(S)
 AppearsQuiescent == 
-    (Snapshots \ ExiledActors) \ AppearsPotentiallyUnblocked
+    Snapshots \ AppearsPotentiallyUnblocked
 
 
 -----------------------------------------------------------------------------
@@ -373,13 +373,12 @@ SnapshotUpToDate(a) == M!SnapshotUpToDate(a)
 RecentEnough(a,b) == M!RecentEnough(a,b)
 
 SnapshotsInsufficient == 
-    CHOOSE S \in SUBSET NonExiledActors : 
+    CHOOSE S \in SUBSET Actors :
+    /\ \A a \in ExiledActors:
+        a \notin ApparentlyExiledActors => a \in S 
+        \* NEW: Exiled actors require recent enough snapshots from ingress actors.
     /\ \A a \in NonExiledActors :
         ~SnapshotUpToDate(a) => a \in S
-        \* NEW: Snapshots from exiled actors are always sufficient.
-    /\ \A a \in ExiledActors : \A b \in NonFaultyActors :
-        a \in piacqs(b) \ ApparentlyExiledActors => b \in S
-        \* NEW: Exiled potential inverse acquaintances must be appear exiled.
     /\ \A a \in NonExiledActors : \A b \in NonFaultyActors :
         LET N1 == location[a]
             N2 == location[b] IN
@@ -417,6 +416,8 @@ GarbageIsDetected == AppearsQuiescent = {}
 NonFaultyGarbageIsDetected == AppearsQuiescent \ AppearsCrashed = {}
 GarbageIsDetectedUpToAFault == AppearsQuiescentUpToAFault = {}
 NonFaultyGarbageIsDetectedUpToAFault == AppearsQuiescentUpToAFault \ AppearsCrashed = {}
+
+DistinctGarbageUpToAFault == AppearsQuiescentUpToAFault = AppearsQuiescent
 
 (* This invariant fails, showing that quiescent actors can have crashed inverse
    acquaintances. *)
