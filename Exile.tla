@@ -223,7 +223,7 @@ Next ==
 
 \* The Shun rule above can be replaced with the following Exile rule without
 \* loss of generality for faster model checking:
-\* \/ \E G \in SUBSET NonExiledNodes: Exile(G)
+\* \/ \E G \in SUBSET NonExiledNodes: Exile(G, NonExiledNodes \ G)
 
 -----------------------------------------------------------------------------
 (* ACTUAL GARBAGE *)
