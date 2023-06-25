@@ -124,7 +124,7 @@ Admit(m) ==
     LET a  == m.target
         N1 == m.origin
         N2 == location[a] 
-        B  == [ b,c \in {a} \X m.refs |-> 1 ]
+        B  == [ <<b,c>> \in {a} \X m.refs |-> 1 ]
     IN
     /\ ingress' = [ingress EXCEPT ![N1,N2].sendCount[a] = @ + 1, 
                                   ![N1,N2].sentRefs     = @ ++ B]
@@ -138,7 +138,7 @@ Drop(m) ==
     LET a  == m.target
         N1 == m.origin 
         N2 == location[a]
-        B  == [ b,c \in {a} \X m.refs |-> 1 ]
+        B  == [ <<b,c>> \in {a} \X m.refs |-> 1 ]
     IN
     /\ msgs' = remove(msgs, m)
     /\ IF m.admitted THEN 
