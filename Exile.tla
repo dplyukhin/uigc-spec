@@ -227,7 +227,7 @@ effectiveMsgsTo(a) == { m \in msgsTo(a) : m.admitted \/ m \in AdmissibleMsgs }
 effectivePacqs(a) == 
     { b \in Actors : b \in acqs(a) \/ \E m \in effectiveMsgsTo(a) : b \in m.refs }
 effectivePiacqs(b) == 
-    { a \in NonExiledActors : b \in effectivePacqs(a) }
+    { a \in Actors : b \in effectivePacqs(a) }
 
 EffectivelyBlocked == { a \in IdleActors : effectiveMsgsTo(a) = {} }
 EffectivelyUnblocked == Actors \ EffectivelyBlocked
@@ -239,6 +239,7 @@ isPotentiallyUnblockedUpToAFault(S) ==
         \* is deliverable.
     /\ \A a \in Actors, b \in NonFaultyActors :
         /\ (a \in S \intersect effectivePiacqs(b) => b \in S)
+            \* NEW: Disregard references in messages that can never be admitted.
         /\ (a \in (S \union FaultyActors) \intersect monitoredBy(b) => b \in S)
             \* NEW: An actor is not garbage if it monitors an exiled actor.
 
