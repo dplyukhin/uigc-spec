@@ -389,13 +389,21 @@ SnapshotsInsufficient ==
 
 SnapshotsSufficient == Actors \ SnapshotsInsufficient
 
-SpecUpToAFault == 
-    QuiescentUpToAFault \intersect SnapshotsSufficient \intersect NonExiledActors = 
-    AppearsQuiescentUpToAFault \intersect NonExiledActors
-
+(* The specificationstates that a non-exiled actor appears quiescent if and only
+   if it is actually quiescent and there are sufficient snapshots to diagnose 
+   quiescence. *)
 Spec == 
     Quiescent \intersect SnapshotsSufficient \intersect NonExiledActors = 
     AppearsQuiescent \intersect NonExiledActors
+
+(* For quiescence up-to-a-fault, the simple specification above is not sufficient.
+   This is because an actor that is quiescent up-to-a-fault can become busy if
+   it monitors a remote actor that became exiled. *)
+SpecUpToAFault == 
+    (\A a \in AppearsQuiescentUpToAFault: \A b \in appearsMonitoredBy(a): b \notin ExiledActors) =>
+    QuiescentUpToAFault \intersect SnapshotsSufficient \intersect NonExiledActors = 
+    AppearsQuiescentUpToAFault \intersect NonExiledActors
+
 
 -----------------------------------------------------------------------------
 (* TEST CASES: These invariants do not hold because garbage can be detected. *)
