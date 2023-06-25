@@ -366,7 +366,6 @@ AppearsQuiescent ==
 
 -----------------------------------------------------------------------------
 (* SOUNDNESS AND COMPLETENESS PROPERTIES *)
-
 SoundnessUpToAFault == AppearsQuiescentUpToAFault \subseteq QuiescentUpToAFault
 Soundness == AppearsQuiescent \subseteq Quiescent
 
@@ -374,16 +373,15 @@ SnapshotUpToDate(a) == M!SnapshotUpToDate(a)
 RecentEnough(a,b) == M!RecentEnough(a,b)
 
 SnapshotsInsufficient == 
-    CHOOSE S \in SUBSET Actors : \A a \in Actors : a \notin ApparentlyExiledActors =>
-        \* NEW: If an actor is exiled, it suffices to have snapshots from ingress actors.
-    /\ (~SnapshotUpToDate(a) => a \in S)
-    /\ \A b \in NonFaultyActors :
+    CHOOSE S \in SUBSET Actors : 
+    /\ \A a \in Actors : ~SnapshotUpToDate(a) => a \in S
+    /\ \A a \in Actors \ ApparentlyExiledActors, b \in NonFaultyActors :
+        \* NEW: We do not need up-to-date snapshots from inverse acquaintances that appear exiled.
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in piacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
         /\ LET N1 == location[a]
-               N2 == location[b]
-           IN
+               N2 == location[b] IN
            ingress[N1,N2].droppedCount[b] # ingressSnapshots[N1,N2].droppedCount[b] => b \in S 
             \* NEW: Dropped messages from non-exiled nodes must be accounted for.
 
