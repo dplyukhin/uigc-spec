@@ -25,17 +25,7 @@ Message == [
 -----------------------------------------------------------------------------
 (* INITIALIZATION AND BASIC INVARIANTS *)
 
-ActorState == [
-    status      : {"busy", "idle", "crashed", "exiled"}, \* NEW: Actors may become "exiled".
-        \* Exiled actors are like crashed actors, except they cannot take snapshots.
-    recvCount   : Nat,
-    sendCount   : [ActorName -> Nat],
-    active      : [ActorName -> Nat],
-    deactivated : [ActorName -> Nat],
-    created     : [ActorName \X ActorName -> Nat],
-    monitored   : SUBSET ActorName,
-    isRoot      : BOOLEAN
-]
+ActorState == M!ActorState
 
 IngressState == [
     shunned      : BOOLEAN,
@@ -166,9 +156,7 @@ Drop(m) ==
    snapshots. *)
 Shun(N1, N2) ==
     /\ ingress' = [ingress EXCEPT ![N1,N2].shunned = TRUE]
-    /\ actors' =
-        [a \in NewlyExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]] @@ actors
-    /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
+    /\ UNCHANGED <<actors,msgs,snapshots,ingressSnapshots,location>>
 
 (* To reduce the model checking state space, the `Shun' rule can be replaced with the following `Exile'
    rule. This is safe because, for any execution in which a faction G_1 all shuns another faction G_2,
@@ -176,9 +164,7 @@ Shun(N1, N2) ==
 Exile(G1, G2) ==
     /\ ingress' =
         [N1 \in G1, N2 \in G2 |-> [ingress[N1, N2] EXCEPT !.shunned = TRUE]] @@ ingress
-    /\ actors' =
-        [a \in NewlyExiledActors |-> [actors[a] EXCEPT !.status = "exiled"]] @@ actors
-    /\ UNCHANGED <<msgs,snapshots,ingressSnapshots,location>>
+    /\ UNCHANGED <<actors,msgs,snapshots,ingressSnapshots,location>>
 
 (* Ingress actors can record snapshots. *)
 IngressSnapshot(N1, N2) ==
@@ -193,29 +179,31 @@ Init == InitialConfiguration(
     InitialActorState             \* The initial actor's state.
 )
 
+(* Several transition rules have been updated to account for locations.
+   In addition, every rule is modified so that exiled actors no longer
+   take actions. *)
 Next ==
-    \/ \E a \in BusyActors: Idle(a)
-    \/ \E a \in BusyActors: \E b \in FreshActorName: \E N \in NeitherShuns(location[a]):
-       Spawn(a,b,InitialActorState,N)
+    \/ \E a \in BusyActors \ ExiledActors: Idle(a)
+    \/ \E a \in BusyActors \ ExiledActors: \E b \in FreshActorName: 
+       \E N \in NeitherShuns(location[a]): Spawn(a,b,InitialActorState,N)
         \* UPDATE: Actors are spawned onto a specific (non-shunned) node.
-    \/ \E a \in BusyActors: \E b \in acqs(a): Deactivate(a,b)
-    \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
+    \/ \E a \in BusyActors \ ExiledActors: \E b \in acqs(a): Deactivate(a,b)
+    \/ \E a \in BusyActors \ ExiledActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
         Send(a,b,[origin |-> location[a], admitted |-> location[b] = location[a], 
                   target |-> b, refs |-> refs])
         \* UPDATE: Messages are tagged with node locations and cannot be sent to faulty actors.
-    \/ \E a \in IdleActors: \E m \in deliverableMsgsTo(a): Receive(a,m)
-    \/ \E a \in IdleActors \union BusyActors \union CrashedActors: Snapshot(a)
-        \* NOTE: Exiled actors do not take snapshots.
-    \/ \E a \in BusyActors: Crash(a)
-    \/ \E a \in BusyActors: \E b \in acqs(a): Monitor(a,b)
-    \/ \E a \in IdleActors: \E b \in FaultyActors \intersect M!monitoredBy(a): Notify(a,b)
+    \/ \E a \in IdleActors \ ExiledActors: \E m \in deliverableMsgsTo(a): Receive(a,m)
+    \/ \E a \in Actors \ ExiledActors: Snapshot(a)
+    \/ \E a \in BusyActors \ ExiledActors: Crash(a)
+    \/ \E a \in BusyActors \ ExiledActors: \E b \in acqs(a): Monitor(a,b)
+    \/ \E a \in IdleActors \ ExiledActors: \E b \in FaultyActors \intersect M!monitoredBy(a): Notify(a,b)
         \* UPDATE: Actors are notified when monitored actors are exiled.
-    \/ \E a \in BusyActors \ Roots: Register(a)
-    \/ \E a \in IdleActors \intersect Roots: Wakeup(a)
-    \/ \E a \in BusyActors \intersect Roots: Unregister(a)
+    \/ \E a \in (BusyActors \ Roots) \ ExiledActors: Register(a)
+    \/ \E a \in (IdleActors \intersect Roots) \ ExiledActors: Wakeup(a)
+    \/ \E a \in (BusyActors \intersect Roots) \ ExiledActors: Unregister(a)
     \/ \E m \in AdmissibleMsgs: Admit(m) \* NEW
     \/ \E m \in BagToSet(msgs): Drop(m)  \* NEW
-    \/ \E N2 \in NodeID: \E N1 \in ShunnableBy(N2): Shun(N1,N2) \* NEW
+    \/ \E N2 \in NodeID \ ExiledNodes: \E N1 \in ShunnableBy(N2): Shun(N1,N2) \* NEW
     \/ \E N1 \in NodeID: \E N2 \in NonExiledNodes: 
         ingress[N1,N2] # ingressSnapshots[N1,N2] /\ IngressSnapshot(N1,N2) \* NEW
         \* To reduce the TLA+ search space, ingress actors do not take snapshots if
@@ -409,7 +397,7 @@ SpecUpToAFault ==
 ActorsCanBeSpawned == Cardinality(Actors) < 4
 MessagesCanBeReceived == \A a \in Actors: actors[a].recvCount = 0
 SelfMessagesCanBeReceived == \A a \in Actors: actors[a].recvCount = 0 \/ Cardinality(Actors) > 1
-ActorsCanBeExiled == \A a \in Actors: actors[a].status # "exiled"
+ActorsCanBeExiled == \A a \in Actors: a \notin ExiledActors
 
 (* This invariant fails, showing that the set of quiescent actors is nonempty. *)
 GarbageExists == Quiescent = {}
