@@ -227,7 +227,7 @@ monitoredBy(b) == M!monitoredBy(b)
    it are undeliverable. *)
 EffectivelyBlocked == { a \in IdleActors : 
     \A m \in msgsTo(a): ~m.admitted /\ m \notin AdmissibleMsgs }
-EffectivelyUnblocked == Actors \ Blocked
+EffectivelyUnblocked == Actors \ EffectivelyBlocked
 
 isPotentiallyUnblockedUpToAFault(S) ==
     /\ Roots \ FaultyActors \subseteq S
