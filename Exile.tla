@@ -223,9 +223,17 @@ Next ==
 
 monitoredBy(b) == M!monitoredBy(b)
 
+(* An actor is effectively blocked if all the undelivered messages directed to
+   it are undeliverable. *)
+EffectivelyBlocked == { a \in IdleActors : 
+    \A m \in msgsTo(a): ~m.admitted /\ m \notin AdmissibleMsgs }
+EffectivelyUnblocked == Actors \ Blocked
+
 isPotentiallyUnblockedUpToAFault(S) ==
     /\ Roots \ FaultyActors \subseteq S
-    /\ Unblocked \ FaultyActors \subseteq S
+    /\ EffectivelyUnblocked \ FaultyActors \subseteq S 
+        \* NEW: An unblocked actor is potentially unblocked only if the message
+        \* is deliverable.
     /\ \A a \in Actors, b \in NonFaultyActors :
         /\ (a \in S \intersect piacqs(b) => b \in S)
         /\ (a \in (S \union FaultyActors) \intersect monitoredBy(b) => b \in S)
