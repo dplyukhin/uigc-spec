@@ -203,7 +203,7 @@ Next ==
     \/ \E a \in (BusyActors \intersect Roots) \ ExiledActors: Unregister(a)
     \/ \E m \in AdmissibleMsgs: Admit(m) \* NEW
     \/ \E m \in BagToSet(msgs): Drop(m)  \* NEW
-    \/ \E N2 \in NodeID \ ExiledNodes: \E N1 \in ShunnableBy(N2): Shun(N1,N2) \* NEW
+    \/ \E N2 \in NonExiledNodes: \E N1 \in ShunnableBy(N2): Shun(N1,N2) \* NEW
     \/ \E N1 \in NodeID: \E N2 \in NonExiledNodes: 
         ingress[N1,N2] # ingressSnapshots[N1,N2] /\ IngressSnapshot(N1,N2) \* NEW
         \* To reduce the TLA+ search space, ingress actors do not take snapshots if
@@ -362,7 +362,11 @@ RecentEnough(a,b) == M!RecentEnough(a,b)
 
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET Actors : 
-    /\ \A a \in Actors : ~SnapshotUpToDate(a) => a \in S
+    /\ \A a \in Actors \ ExiledActors: ~SnapshotUpToDate(a) => a \in S
+    /\ \A a \in ExiledActors: 
+        \* NEW: If an exiled actor does not already appear quiescent, then ingress
+        \* actor snapshots are needed.
+        a \notin AppearsQuiescent /\ a \notin ApparentlyExiledActors => a \in S
     /\ \A a \in Actors \ ApparentlyExiledActors, b \in NonFaultyActors :
         \* NEW: We do not need up-to-date snapshots from inverse acquaintances that appear exiled.
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
@@ -372,8 +376,23 @@ SnapshotsInsufficient ==
                N2 == location[b] IN
            ingress[N1,N2].droppedCount[b] # ingressSnapshots[N1,N2].droppedCount[b] => b \in S 
             \* NEW: Dropped messages from non-exiled nodes must be accounted for.
-
 SnapshotsSufficient == Actors \ SnapshotsInsufficient
+
+(* The next definition is identical to the one above, except it uses AppearsQuiescentUpToAFault
+   instead of AppearsQuiescent. *)
+SnapshotsInsufficientUpToAFault == 
+    CHOOSE S \in SUBSET Actors : 
+    /\ \A a \in Actors \ ExiledActors: ~SnapshotUpToDate(a) => a \in S
+    /\ \A a \in ExiledActors:
+        a \notin AppearsQuiescentUpToAFault /\ a \notin ApparentlyExiledActors => a \in S
+    /\ \A a \in Actors \ ApparentlyExiledActors, b \in NonFaultyActors :
+        /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
+        /\ (a \in S /\ a \in piacqs(b) => b \in S)
+        /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
+        /\ LET N1 == location[a]
+               N2 == location[b] IN
+           ingress[N1,N2].droppedCount[b] # ingressSnapshots[N1,N2].droppedCount[b] => b \in S 
+SnapshotsSufficientUpToAFault == Actors \ SnapshotsInsufficientUpToAFault
 
 (* The specificationstates that a non-exiled actor appears quiescent if and only
    if it is actually quiescent and there are sufficient snapshots to diagnose 
@@ -387,7 +406,7 @@ Spec ==
    it monitors a remote actor that became exiled. *)
 SpecUpToAFault == 
     (\A a \in AppearsQuiescentUpToAFault: \A b \in appearsMonitoredBy(a): b \notin ExiledActors) =>
-    QuiescentUpToAFault \intersect SnapshotsSufficient \intersect NonExiledActors = 
+    QuiescentUpToAFault \intersect SnapshotsSufficientUpToAFault \intersect NonExiledActors = 
     AppearsQuiescentUpToAFault \intersect NonExiledActors
 
 
