@@ -223,10 +223,13 @@ Next ==
 
 monitoredBy(b) == M!monitoredBy(b)
 
-(* An actor is effectively blocked if all the undelivered messages directed to
-   it are undeliverable. *)
-EffectivelyBlocked == { a \in IdleActors : 
-    \A m \in msgsTo(a): ~m.admitted /\ m \notin AdmissibleMsgs }
+effectiveMsgsTo(a) == { m \in msgsTo(a) : m.admitted \/ m \in AdmissibleMsgs }
+effectivePacqs(a) == 
+    { b \in Actors : b \in acqs(a) \/ \E m \in effectiveMsgsTo(a) : b \in m.refs }
+effectivePiacqs(b) == 
+    { a \in NonExiledActors : b \in effectivePacqs(a) }
+
+EffectivelyBlocked == { a \in IdleActors : effectiveMsgsTo(a) = {} }
 EffectivelyUnblocked == Actors \ EffectivelyBlocked
 
 isPotentiallyUnblockedUpToAFault(S) ==
@@ -235,7 +238,7 @@ isPotentiallyUnblockedUpToAFault(S) ==
         \* NEW: An unblocked actor is potentially unblocked only if the message
         \* is deliverable.
     /\ \A a \in Actors, b \in NonFaultyActors :
-        /\ (a \in S \intersect piacqs(b) => b \in S)
+        /\ (a \in S \intersect effectivePiacqs(b) => b \in S)
         /\ (a \in (S \union FaultyActors) \intersect monitoredBy(b) => b \in S)
             \* NEW: An actor is not garbage if it monitors an exiled actor.
 
@@ -378,7 +381,7 @@ SnapshotsInsufficient ==
     /\ \A a \in Actors \ ApparentlyExiledActors, b \in NonFaultyActors :
         \* NEW: We do not need up-to-date snapshots from inverse acquaintances that appear exiled.
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
-        /\ (a \in S /\ a \in piacqs(b) => b \in S)
+        /\ (a \in S /\ a \in effectivePiacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
         /\ LET N1 == location[a]
                N2 == location[b] IN
@@ -395,7 +398,7 @@ SnapshotsInsufficientUpToAFault ==
         a \notin AppearsQuiescentUpToAFault /\ a \notin ApparentlyExiledActors => a \in S
     /\ \A a \in Actors \ ApparentlyExiledActors, b \in NonFaultyActors :
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
-        /\ (a \in S /\ a \in piacqs(b) => b \in S)
+        /\ (a \in S /\ a \in effectivePiacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
         /\ LET N1 == location[a]
                N2 == location[b] IN
@@ -416,7 +419,6 @@ SpecUpToAFault ==
     (\A a \in AppearsQuiescentUpToAFault: \A b \in appearsMonitoredBy(a): b \notin ExiledActors) =>
     QuiescentUpToAFault \intersect SnapshotsSufficientUpToAFault \intersect NonExiledActors = 
     AppearsQuiescentUpToAFault \intersect NonExiledActors
-
 
 -----------------------------------------------------------------------------
 (* TEST CASES: These invariants do not hold because garbage can be detected. *)
