@@ -92,21 +92,21 @@ Non-crashed actors that are potentially reachable by non-garbage are not garbage
 Non-crashed actors that monitor actors that can crash or have crashed are not garbage.
  *)
 PotentiallyUnblocked ==
-    CHOOSE S \in SUBSET pdom(actors) :
+    CHOOSE S \in SUBSET Actors :
     /\ (Roots \union Unblocked) \ CrashedActors \subseteq S
-    /\ \A a \in pdom(actors), b \in pdom(actors) \ CrashedActors :
+    /\ \A a \in Actors, b \in Actors \ CrashedActors :
         /\ (a \in S \intersect piacqs(b) => b \in S)
         /\ (a \in (S \union CrashedActors) \intersect monitoredBy(b) => b \in S)
 
-Quiescent == pdom(actors) \ PotentiallyUnblocked
+Quiescent == Actors \ PotentiallyUnblocked
 
 AppearsUnblocked == D!AppearsUnblocked
 apparentIAcqs(b) == D!apparentIAcqs(b)
 appearsMonitoredBy(a) == snapshots[a].monitored
-AppearsRoot == { a \in pdom(snapshots) : snapshots[a].isRoot }
-AppearsCrashed == { a \in pdom(snapshots) : snapshots[a].status = "crashed" }
+AppearsRoot == { a \in Snapshots : snapshots[a].isRoot }
+AppearsCrashed == { a \in Snapshots : snapshots[a].status = "crashed" }
 AppearsClosed == D!AppearsClosed \intersect 
-                 { b \in pdom(snapshots) : appearsMonitoredBy(b) \subseteq pdom(snapshots) }
+                 { b \in Snapshots : appearsMonitoredBy(b) \subseteq Snapshots }
 
 (* 
 Each clause in this definition corresponds to one in PotentiallyUnblocked---with one
@@ -114,14 +114,14 @@ addition: if an actor A has potential inverse acquaintances or monitored actors 
 have not taken a snapshot, then A should be marked as potentially unblocked for safety.
  *)
 AppearsPotentiallyUnblocked == 
-    CHOOSE S \in SUBSET pdom(snapshots) :
-    /\ pdom(snapshots) \ (AppearsClosed \union AppearsCrashed) \subseteq S
+    CHOOSE S \in SUBSET Snapshots :
+    /\ Snapshots \ (AppearsClosed \union AppearsCrashed) \subseteq S
     /\ (AppearsRoot \union AppearsUnblocked) \ AppearsCrashed \subseteq S
-    /\ \A a \in pdom(snapshots), b \in pdom(snapshots) \ AppearsCrashed :
+    /\ \A a \in Snapshots, b \in Snapshots \ AppearsCrashed :
         /\ (a \in S \intersect apparentIAcqs(b) => b \in S)
         /\ (a \in (S \union AppearsCrashed) \intersect appearsMonitoredBy(b) => b \in S)
 
-AppearsQuiescent == pdom(snapshots) \ AppearsPotentiallyUnblocked
+AppearsQuiescent == Snapshots \ AppearsPotentiallyUnblocked
 
 -----------------------------------------------------------------------------
 
@@ -129,14 +129,14 @@ SnapshotUpToDate(a) == D!SnapshotUpToDate(a)
 RecentEnough(a,b) == D!RecentEnough(a,b)
 
 SnapshotsInsufficient == 
-    CHOOSE S \in SUBSET pdom(actors) : \A a \in pdom(actors) :
+    CHOOSE S \in SUBSET Actors : \A a \in Actors :
     /\ (~SnapshotUpToDate(a) => a \in S)
-    /\ \A b \in pdom(actors) \ CrashedActors :
+    /\ \A b \in Actors \ CrashedActors :
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in piacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S) \* NEW
 
-SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
+SnapshotsSufficient == Actors \ SnapshotsInsufficient
 
 Spec == (Quiescent \intersect SnapshotsSufficient) = AppearsQuiescent
 
@@ -153,7 +153,7 @@ GarbageIsDetected == ~(AppearsQuiescent = {})
 (* This invariant fails, showing that quiescent actors can have crashed inverse
    acquaintances. *)
 CrashedGarbageIsDetected ==
-  ~(\E a,b \in pdom(actors): a # b /\ a \in CrashedActors /\ b \in AppearsQuiescent /\ 
+  ~(\E a,b \in Actors: a # b /\ a \in CrashedActors /\ b \in AppearsQuiescent /\ 
     a \in iacqs(b))
 
 (* The previous soundness property no longer holds because actors can now become

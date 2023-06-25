@@ -117,31 +117,31 @@ Next ==
 -----------------------------------------------------------------------------
 
 PotentiallyUnblocked ==
-    CHOOSE S \in SUBSET pdom(actors) : \A a, b \in pdom(actors) :
+    CHOOSE S \in SUBSET Actors : \A a, b \in Actors :
     /\ (a \notin Blocked => a \in S)
     /\ (a \in S /\ a \in piacqs(b) => b \in S)
 
-Quiescent == pdom(actors) \ PotentiallyUnblocked
+Quiescent == Actors \ PotentiallyUnblocked
 
-countCreated(a, b)     == sum([ c \in pdom(snapshots) |-> snapshots[c].created[a, b]])
-countDeactivated(a, b) == IF a \in pdom(snapshots) THEN snapshots[a].deactivated[b] ELSE 0
-countSentTo(b)         == sum([ a \in pdom(snapshots) |-> snapshots[a].sendCount[b]])
-countReceived(b)       == IF b \in pdom(snapshots) THEN snapshots[b].recvCount ELSE 0
+countCreated(a, b)     == sum([ c \in Snapshots |-> snapshots[c].created[a, b]])
+countDeactivated(a, b) == IF a \in Snapshots THEN snapshots[a].deactivated[b] ELSE 0
+countSentTo(b)         == sum([ a \in Snapshots |-> snapshots[a].sendCount[b]])
+countReceived(b)       == IF b \in Snapshots THEN snapshots[b].recvCount ELSE 0
 
 historicalIAcqs(c) == { b \in ActorName : countCreated(b, c) > 0 }
 apparentIAcqs(c)   == { b \in ActorName : countCreated(b, c) > countDeactivated(b, c) }
 
-AppearsIdle    == { a \in pdom(snapshots) : snapshots[a].status = "idle" }
-AppearsClosed  == { b \in pdom(snapshots) : historicalIAcqs(b) \subseteq pdom(snapshots) }
+AppearsIdle    == { a \in Snapshots : snapshots[a].status = "idle" }
+AppearsClosed  == { b \in Snapshots : historicalIAcqs(b) \subseteq Snapshots }
 AppearsBlocked == { b \in AppearsIdle \cap AppearsClosed : countSentTo(b) = countReceived(b) }
-AppearsUnblocked == pdom(snapshots) \ AppearsBlocked
+AppearsUnblocked == Snapshots \ AppearsBlocked
 
 AppearsPotentiallyUnblocked == 
-    CHOOSE S \in SUBSET pdom(snapshots) : \A a, b \in pdom(snapshots) :
+    CHOOSE S \in SUBSET Snapshots : \A a, b \in Snapshots :
     /\ (a \notin AppearsBlocked => a \in S)
     /\ (a \in S /\ a \in apparentIAcqs(b) => b \in S)
 
-AppearsQuiescent == pdom(snapshots) \ AppearsPotentiallyUnblocked
+AppearsQuiescent == Snapshots \ AppearsPotentiallyUnblocked
 
 (* An actor's snapshot is up to date if its state has not changed since the 
    last snapshot. 
@@ -152,7 +152,7 @@ SnapshotUpToDate(a) == actors[a] = snapshots[a]
    deactivated count in ths snapshot is up to date with the actual deactivated 
    count.  *)
 RecentEnough(a,b) ==
-    a \in pdom(snapshots) /\ actors[a].deactivated[b] = snapshots[a].deactivated[b]
+    a \in Snapshots /\ actors[a].deactivated[b] = snapshots[a].deactivated[b]
 
 (* A set of snapshots is insufficient for b if:
    1. b's snapshot is out of date;
@@ -160,13 +160,13 @@ RecentEnough(a,b) ==
    3. b is potentially reachable by an actor for which the snapshots are insufficient.
  *)
 SnapshotsInsufficient == 
-    CHOOSE S \in SUBSET pdom(actors) : \A a \in pdom(actors) :
+    CHOOSE S \in SUBSET Actors : \A a \in Actors :
     /\ (~SnapshotUpToDate(a) => a \in S)
-    /\ \A b \in pdom(actors) :
+    /\ \A b \in Actors :
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in piacqs(b) => b \in S)
 
-SnapshotsSufficient == pdom(actors) \ SnapshotsInsufficient
+SnapshotsSufficient == Actors \ SnapshotsInsufficient
 
 (* The specification captures the following properties:
    1. Soundness: Every actor that appears quiescent is indeed quiescent.
@@ -189,7 +189,7 @@ GarbageIsDetected == ~(AppearsQuiescent = {})
 (* An actor `b' can appear quiescent when a past inverse acquaintance `a' is not
 quiescent. This is because `a' has deactivated all its references to `b'. *)
 DeactivatedGarbage ==
-  ~(\E a,b \in pdom(actors): a # b /\ a \notin Quiescent /\ b \in AppearsQuiescent /\ 
+  ~(\E a,b \in Actors: a # b /\ a \notin Quiescent /\ b \in AppearsQuiescent /\ 
     actors[a].active[b] = 0 /\ actors[a].deactivated[b] > 0)
 
 ====
