@@ -66,32 +66,89 @@ InitialConfiguration(initialActor, node, actorState) ==
 -----------------------------------------------------------------------------
 (* SET DEFINITIONS *)
 
+(* A message is admissible if it is not already admitted and the origin
+   node is not shunned by the destination node. *)
+AdmissibleMsgs == { m \in BagToSet(msgs) : 
+    ~m.admitted /\ ~ingress[m.origin, location[m.target]].shunned }
+
+(* Because inadmissible messages can never be delivered, we
+   update the definition of `msgsTo' to exclude them. This causes several
+   other definitions below to change in subtle ways. For example, an actor
+   `a' is potentially acquainted with `b' if all there is an inadmissible
+   message to `a' containing a reference to `b'. *)
+msgsTo(a)      == { m \in M!msgsTo(a) : m.admitted \/ m \in AdmissibleMsgs }
+acqs(a)        == M!acqs(a)
+iacqs(b)       == M!iacqs(b)
+pacqs(a)       == { b \in ActorName : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
+piacqs(b)      == { a \in Actors : b \in pacqs(a) }
+pastAcqs(a)    == M!pastAcqs(a)
+pastIAcqs(b)   == M!pastIAcqs(b)
+monitoredBy(b) == M!monitoredBy(b)
+appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
+admittedMsgsTo(a) == { m \in msgsTo(a) : m.admitted }
+
+(* Below, an actor can be blocked if all messages to it are inadmissible. *)
+BusyActors     == M!BusyActors
+IdleActors     == M!IdleActors
+Blocked        == { a \in IdleActors : msgsTo(a) = {} }
+Unblocked      == Actors \ Blocked
+CrashedActors  == M!CrashedActors
+AppearsCrashed == M!AppearsCrashed
+Roots          == M!Roots
+AppearsRoot    == M!AppearsRoot
+
 ShunnedBy(N2)    == { N1 \in NodeID : ingress[N1,N2].shunned }
 ShunnableBy(N1)  == (NodeID \ {N1}) \ ShunnedBy(N1)
 NeitherShuns(N1) == { N2 \in NodeID : ~ingress[N1, N2].shunned /\ 
                                       ~ingress[N2, N1].shunned }
 
 (* The exiled nodes are the largest nontrivial faction where every non-exiled
-   node has shunned every exiled node. *)
+   node has shunned every exiled node. Likewise, a faction of nodes G is 
+   apparently exiled if every node outside of G has taken an ingress snapshot 
+   in which every node of G is shunned.  *)
 ExiledNodes == 
     LargestSubset(NodeID, LAMBDA G:
         /\ G # NodeID
         /\ \A N1 \in G, N2 \in NodeID \ G: ingress[N1,N2].shunned
     )
-NonExiledNodes  == NodeID \ ExiledNodes
-ExiledActors    == { a \in Actors : location[a] \in ExiledNodes }
-NonExiledActors == Actors \ ExiledActors
-FaultyActors    == CrashedActors \union ExiledActors
-NonFaultyActors == Actors \ FaultyActors
+ApparentlyExiledNodes == 
+    LargestSubset(NodeID, LAMBDA G:
+        /\ G # NodeID
+        /\ \A N1 \in G, N2 \in NodeID \ G: ingressSnapshots[N1,N2].shunned
+    )
+NonExiledNodes            == NodeID \ ExiledNodes
+ExiledActors              == { a \in Actors : location[a] \in ExiledNodes }
+NonExiledActors           == Actors \ ExiledActors
+FaultyActors              == CrashedActors \union ExiledActors
+NonFaultyActors           == Actors \ FaultyActors
 
-(* A message must be admitted before being delivered. *)
-deliverableMsgsTo(a) == { m \in msgsTo(a) : m.admitted }
+ApparentlyNonExiledNodes  == NodeID \ ApparentlyExiledNodes
+ApparentlyExiledActors    == { a \in Actors : location[a] \in ApparentlyExiledNodes }
+ApparentlyNonExiledActors == Actors \ ApparentlyExiledActors
+AppearsFaulty             == M!AppearsCrashed \union ApparentlyExiledActors
+AppearsNonFaulty          == Actors \ AppearsFaulty
 
-(* A message is admissible if it is not already admitted and the origin
-   node is not shunned by the destination node. *)
-AdmissibleMsgs == { m \in BagToSet(msgs) : 
-    ~m.admitted /\ ~ingress[m.origin, location[m.target]].shunned }
-        
+NonExiledSnapshots        == Snapshots \ ApparentlyExiledActors
+
+(* The total number of dropped messages to `b' is reflected in the state of its
+   local ingress actors. *)
+droppedMsgsTo(b) ==
+    sum([ N \in NodeID |-> ingress[N, location[b]].droppedCount[b]])
+apparentDroppedMsgsTo(b) ==
+    sum([ N \in NodeID |-> ingressSnapshots[N, location[b]].droppedCount[b]])
+
+(* The total number of dropped references to `b' is reflected in the state of
+   ingress actors throughout the cluster. We are only interested in effective
+   dropped references, i.e. references sent to non-exiled actors. *)
+droppedRefCount(a,b) == 
+    sum([ N \in NodeID |-> ingress[N, location[a]].droppedRefs[a, b] ])
+apparentDroppedRefCount(a,b) == 
+    sum([ N \in NodeID |-> ingressSnapshots[N, location[a]].droppedRefs[a, b] ])
+droppedRefsTo(b) ==
+    sum([ a \in NonExiledActors |-> droppedRefCount(a, b) ])
+apparentDroppedRefsTo(b) ==
+    sum([ a \in ApparentlyNonExiledActors |-> apparentDroppedRefCount(a, b) ])
+
 -----------------------------------------------------------------------------
 (* TRANSITION RULES *)
 
@@ -184,7 +241,7 @@ Next ==
         Send(a,b,[origin |-> location[a], admitted |-> location[b] = location[a], 
                   target |-> b, refs |-> refs])
         \* UPDATE: Messages are tagged with node locations and cannot be sent to faulty actors.
-    \/ \E a \in IdleActors \ ExiledActors: \E m \in deliverableMsgsTo(a): Receive(a,m)
+    \/ \E a \in IdleActors \ ExiledActors: \E m \in admittedMsgsTo(a): Receive(a,m)
     \/ \E a \in Actors \ ExiledActors: Snapshot(a)
     \/ \E a \in BusyActors \ ExiledActors: Crash(a)
     \/ \E a \in BusyActors \ ExiledActors: \E b \in acqs(a): Monitor(a,b)
@@ -213,25 +270,11 @@ Next ==
    Similarly, an actor is potentially unblocked up-to-a-fault if it is busy
    or it can become busy in a non-faulty extension of this execution. *)
 
-monitoredBy(b) == M!monitoredBy(b)
-
-effectiveMsgsTo(a) == { m \in msgsTo(a) : m.admitted \/ m \in AdmissibleMsgs }
-effectivePacqs(a) == 
-    { b \in Actors : b \in acqs(a) \/ \E m \in effectiveMsgsTo(a) : b \in m.refs }
-effectivePiacqs(b) == 
-    { a \in Actors : b \in effectivePacqs(a) }
-
-EffectivelyBlocked == { a \in IdleActors : effectiveMsgsTo(a) = {} }
-EffectivelyUnblocked == Actors \ EffectivelyBlocked
-
 isPotentiallyUnblockedUpToAFault(S) ==
     /\ Roots \ FaultyActors \subseteq S
-    /\ EffectivelyUnblocked \ FaultyActors \subseteq S 
-        \* NEW: An unblocked actor is potentially unblocked only if the message
-        \* is deliverable.
+    /\ Unblocked \ FaultyActors \subseteq S 
     /\ \A a \in Actors, b \in NonFaultyActors :
-        /\ (a \in S \intersect effectivePiacqs(b) => b \in S)
-            \* NEW: Disregard references in messages that can never be admitted.
+        /\ (a \in S \intersect piacqs(b) => b \in S)
         /\ (a \in (S \union FaultyActors) \intersect monitoredBy(b) => b \in S)
             \* NEW: An actor is not garbage if it monitors an exiled actor.
 
@@ -262,31 +305,12 @@ QuiescentUpToAFaultImpliesIdle == QuiescentUpToAFault \subseteq (IdleActors \uni
 -----------------------------------------------------------------------------
 (* APPARENT GARBAGE *)
 
-(* A faction of nodes G is apparently exiled if every node outside of G has
-   taken an ingress snapshot in which every node of G is shunned. *)
-ApparentlyExiledNodes == 
-    LargestSubset(NodeID, LAMBDA G:
-        /\ G # NodeID
-        /\ \A N1 \in G, N2 \in NodeID \ G: ingressSnapshots[N1,N2].shunned
-    )
-ApparentlyExiledActors == { a \in Actors : location[a] \in ApparentlyExiledNodes }
-NonExiledSnapshots == Snapshots \ ApparentlyExiledActors
-
-AppearsCrashed == M!AppearsCrashed
-AppearsFaulty == M!AppearsCrashed \union ApparentlyExiledActors
-AppearsRoot == M!AppearsRoot
-appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
-
 (* The effective created count is the sum of (a) the created counts recorded by non-exiled actors
    and (b) the created counts recorded by ingress actors for exiled nodes. *)
 effectiveCreatedCount(a, b) == 
     sum([ c \in NonExiledSnapshots |-> snapshots[c].created[a, b]]) +
     sum([ N1 \in ApparentlyExiledNodes, N2 \in NodeID \ ApparentlyExiledNodes |-> 
           ingressSnapshots[N1, N2].sentRefs[a, b] ])
-
-(* The total number of references to `b' sent to `a' that have been dropped. *)
-effectiveDroppedRefCount(a,b) == 
-    sum([ N \in NodeID |-> ingressSnapshots[N, location[a]].droppedRefs[a, b] ])
 
 (* Once an actor `a' is exiled, all its references are effectively deactivated. Thus the effective 
    deactivated count is equal to the effective created count. Note that any references sent to `a'
@@ -300,7 +324,7 @@ effectiveDeactivatedCount(a, b) ==
         effectiveCreatedCount(a, b) 
     ELSE 
         (IF a \in Snapshots THEN snapshots[a].deactivated[b] ELSE 0) +
-        effectiveDroppedRefCount(a,b)
+        apparentDroppedRefCount(a,b)
 
 (* Once an actor `a' is exiled, the number of messages that `a' effectively sent to some `b'
    is equal to the number of messages admitted by the ingress actor at `b''s node. Thus the
@@ -317,7 +341,7 @@ effectiveSendCount(b) ==
    also included in this count. *)
 effectiveReceiveCount(b) == 
     (IF b \in Snapshots THEN snapshots[b].recvCount ELSE 0) +
-    sum([ N \in NodeID |-> ingressSnapshots[N, location[b]].droppedCount[b] ])
+    apparentDroppedMsgsTo(b)
 
 (* Historical and apparent acquaintances now incorporate ingress snapshot information. 
    Once an actor appears exiled, it is no longer considered a historical or potential inverse
@@ -325,7 +349,7 @@ effectiveReceiveCount(b) ==
    is not considered a historical inverse acquaintance of `b'; this is because snapshots from
    `a' are not needed to determine whether `b' is quiescent.  *)
 historicalIAcqs(c) == { b \in Actors : 
-    effectiveCreatedCount(b, c) > effectiveDroppedRefCount(b,c) }
+    effectiveCreatedCount(b, c) > apparentDroppedRefCount(b,c) }
 apparentIAcqs(c)   == { b \in Actors : 
     effectiveCreatedCount(b, c) > effectiveDeactivatedCount(b, c) }
 
@@ -374,15 +398,6 @@ Soundness == AppearsQuiescent \subseteq Quiescent
 SnapshotUpToDate(a) == M!SnapshotUpToDate(a)
 RecentEnough(a,b) == M!RecentEnough(a,b)
 
-droppedMsgsTo(b) ==
-    sum([ N \in NodeID |-> ingress[N, location[b]].droppedMsgsTo[b]])
-apparentDroppedMsgsTo(b) ==
-    sum([ N \in NodeID |-> ingressSnapshots[N, location[b]].droppedMsgsTo[b]])
-droppedRefsTo(b) ==
-    sum([ N \in NodeID, a \in NonExiledActors |-> ingress[N, location[a]].droppedRefs[a, b] ])
-apparentDroppedRefsTo(b) ==
-    sum([ N \in NodeID, a \in NonExiledActors |-> ingressSnapshots[N, location[a]].droppedRefs[a, b] ])
-
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET Actors : 
     /\ \A a \in Actors \ ExiledActors: 
@@ -397,7 +412,7 @@ SnapshotsInsufficient ==
     /\ \A a \in Actors \ ApparentlyExiledActors, b \in NonFaultyActors :
         \* NEW: We do not need up-to-date snapshots from inverse acquaintances that appear exiled.
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
-        /\ (a \in S /\ a \in effectivePiacqs(b) => b \in S)
+        /\ (a \in S /\ a \in piacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
 SnapshotsSufficient == Actors \ SnapshotsInsufficient
 
@@ -414,7 +429,7 @@ SnapshotsInsufficientUpToAFault ==
         a \notin AppearsQuiescentUpToAFault /\ a \notin ApparentlyExiledActors => a \in S
     /\ \A a \in Actors \ ApparentlyExiledActors, b \in NonFaultyActors :
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
-        /\ (a \in S /\ a \in effectivePiacqs(b) => b \in S)
+        /\ (a \in S /\ a \in piacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
 SnapshotsSufficientUpToAFault == Actors \ SnapshotsInsufficientUpToAFault
 

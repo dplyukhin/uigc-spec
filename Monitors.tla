@@ -27,10 +27,33 @@ InitialActorState ==
         isRoot |-> FALSE
     ]
 
-monitoredBy(b) == actors[b].monitored
- 
 InitialConfiguration(actor, actorState) ==   
     D!InitialConfiguration(actor, [actorState EXCEPT !.isRoot = TRUE])
+
+-----------------------------------------------------------------------------
+(* DEFINITIONS *)
+
+msgsTo(a)             == D!msgsTo(a)
+acqs(a)               == D!acqs(a)
+iacqs(b)              == D!iacqs(b)
+pacqs(a)              == D!pacqs(a)
+piacqs(b)             == D!piacqs(b)
+pastAcqs(a)           == D!pastAcqs(a)
+pastIAcqs(b)          == D!pastIAcqs(b)
+monitoredBy(b)        == actors[b].monitored
+appearsMonitoredBy(a) == snapshots[a].monitored
+
+BusyActors     == D!BusyActors
+IdleActors     == D!IdleActors
+Blocked        == D!Blocked
+Unblocked      == D!Unblocked
+CrashedActors  == { a \in Actors    : actors[a].status = "crashed" }
+AppearsCrashed == { a \in Snapshots : snapshots[a].status = "crashed" }
+Roots          == { a \in Actors    : actors[a].isRoot }
+AppearsRoot    == { a \in Snapshots : snapshots[a].isRoot }
+
+-----------------------------------------------------------------------------
+(* TRANSITIONS *)
 
 Idle(a)          == D!Idle(a)
 Deactivate(a,b)  == D!Deactivate(a,b)
@@ -102,9 +125,6 @@ Quiescent == Actors \ PotentiallyUnblocked
 
 AppearsUnblocked == D!AppearsUnblocked
 apparentIAcqs(b) == D!apparentIAcqs(b)
-appearsMonitoredBy(a) == snapshots[a].monitored
-AppearsRoot == { a \in Snapshots : snapshots[a].isRoot }
-AppearsCrashed == { a \in Snapshots : snapshots[a].status = "crashed" }
 AppearsClosed == D!AppearsClosed \intersect 
                  { b \in Snapshots : appearsMonitoredBy(b) \subseteq Snapshots }
 
