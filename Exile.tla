@@ -266,9 +266,10 @@ Next ==
 isPotentiallyUnblockedUpToAFault(S) ==
     /\ Roots \ FaultyActors \subseteq S
     /\ Unblocked \ FaultyActors \subseteq S 
-    /\ \A a \in Actors, b \in NonFaultyActors :
-        /\ (a \in S \intersect piacqs(b) => b \in S)
-        /\ (a \in (S \union FaultyActors) \intersect monitoredBy(b) => b \in S)
+    /\ \A a \in S, b \in NonFaultyActors : 
+        a \in piacqs(b) => b \in S
+    /\ \A a \in S \union FaultyActors, b \in NonFaultyActors :
+        a \in monitoredBy(b) => b \in S
             \* NEW: An actor is not garbage if it monitors an exiled actor.
 
 (* An actor is potentially unblocked if it is potentially unblocked up-to-a-fault
@@ -351,9 +352,10 @@ appearsPotentiallyUnblockedUpToAFault(S) ==
     /\ AppearsRoot \ AppearsFaulty \subseteq S 
         \* NEW: Exiled actors still appear potentially unblocked.
     /\ AppearsUnblocked \ AppearsFaulty \subseteq S
-    /\ \A a \in Snapshots, b \in Snapshots \ AppearsFaulty :
-        /\ (a \in S \intersect apparentIAcqs(b) => b \in S)
-        /\ (a \in (S \union AppearsFaulty) \intersect appearsMonitoredBy(b) => b \in S)
+    /\ \A a \in S, b \in Snapshots \ AppearsFaulty :
+        a \in apparentIAcqs(b) => b \in S
+    /\ \A a \in S \union AppearsFaulty, b \in Snapshots \ AppearsFaulty :
+        a \in appearsMonitoredBy(b) => b \in S
             \* NEW: An actor is not garbage if it monitors an exiled actor.
 
 appearsPotentiallyUnblocked(S) == 
