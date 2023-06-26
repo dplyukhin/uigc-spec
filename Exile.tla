@@ -64,7 +64,7 @@ InitialConfiguration(initialActor, node, actorState) ==
     /\ location         = (initialActor :> node) @@ [a \in ActorName |-> null]
 
 -----------------------------------------------------------------------------
-(* SET DEFINITIONS *)
+(* DEFINITIONS *)
 
 (* A message is admissible if it is not already admitted and the origin
    node is not shunned by the destination node. *)
@@ -150,7 +150,7 @@ apparentDroppedRefsTo(b) ==
     sum([ a \in ApparentlyNonExiledActors |-> apparentDroppedRefCount(a, b) ])
 
 -----------------------------------------------------------------------------
-(* TRANSITION RULES *)
+(* TRANSITIONS *)
 
 Idle(a)         == M!Idle(a)         /\ UNCHANGED <<location,ingress,ingressSnapshots>>
 Deactivate(a,b) == M!Deactivate(a,b) /\ UNCHANGED <<location,ingress,ingressSnapshots>>
@@ -400,16 +400,16 @@ RecentEnough(a,b) == M!RecentEnough(a,b)
 
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET Actors : 
-    /\ \A a \in Actors \ ExiledActors: 
-        /\ ~SnapshotUpToDate(a) => a \in S
+    /\ \A a \in NonExiledActors: ~SnapshotUpToDate(a) => a \in S
+    /\ \A a \in NonFaultyActors:
         /\ droppedMsgsTo(a) # apparentDroppedMsgsTo(a) => a \in S
         /\ droppedRefsTo(a) # apparentDroppedRefsTo(a) => a \in S
-            \* NEW: Dropped messages from non-exiled nodes must be accounted for.
+        \* NEW: Dropped messages to nonfaulty actors must be accounted for.
     /\ \A a \in ExiledActors: 
         \* NEW: If an exiled actor does not already appear quiescent, then ingress
         \* actor snapshots are needed.
         a \notin AppearsQuiescent /\ a \notin ApparentlyExiledActors => a \in S
-    /\ \A a \in Actors \ ApparentlyExiledActors, b \in NonFaultyActors :
+    /\ \A a \in ApparentlyNonExiledActors, b \in NonFaultyActors :
         \* NEW: We do not need up-to-date snapshots from inverse acquaintances that appear exiled.
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in piacqs(b) => b \in S)
@@ -420,14 +420,13 @@ SnapshotsSufficient == Actors \ SnapshotsInsufficient
    instead of AppearsQuiescent. *)
 SnapshotsInsufficientUpToAFault == 
     CHOOSE S \in SUBSET Actors : 
-    /\ \A a \in Actors \ ExiledActors:
-        /\ ~SnapshotUpToDate(a) => a \in S
+    /\ \A a \in NonExiledActors: ~SnapshotUpToDate(a) => a \in S
+    /\ \A a \in NonFaultyActors:
         /\ droppedMsgsTo(a) # apparentDroppedMsgsTo(a) => a \in S
         /\ droppedRefsTo(a) # apparentDroppedRefsTo(a) => a \in S
-            \* NEW: Dropped messages from non-exiled nodes must be accounted for.
     /\ \A a \in ExiledActors:
         a \notin AppearsQuiescentUpToAFault /\ a \notin ApparentlyExiledActors => a \in S
-    /\ \A a \in Actors \ ApparentlyExiledActors, b \in NonFaultyActors :
+    /\ \A a \in ApparentlyNonExiledActors, b \in NonFaultyActors :
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in piacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
