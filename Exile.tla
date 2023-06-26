@@ -4,9 +4,11 @@ EXTENDS Common, Integers, FiniteSets, Bags, TLC
 
 (* Every node has a unique ID and every actor is located at some node. 
    Every pair of nodes has an ingress actor that tracks when messages are dropped 
-   and when messages arrive at a node. Ingress actors can take snapshots. *)
+   and when messages arrive at a node. Ingress actors can take snapshots. 
+   There is also a temporary holding area for messages that have been dropped
+   but whose recipient has not yet learned of the drop. *)
 CONSTANT NodeID
-VARIABLE location, ingress, ingressSnapshots
+VARIABLE location, ingress, ingressSnapshots, droppedMsgs
 
 M == INSTANCE Monitors
 
@@ -28,33 +30,32 @@ Message == [
 ActorState == M!ActorState
 
 IngressState == [
-    shunned      : BOOLEAN,
-    sendCount    : [ActorName -> Nat],
-    sentRefs     : [ActorName \X ActorName -> Nat],
-    droppedCount : [ActorName -> Nat],
-    droppedRefs  : [ActorName \X ActorName -> Nat]
+    shunned   : BOOLEAN,
+    sendCount : [ActorName -> Nat],
+    sentRefs  : [ActorName \X ActorName -> Nat]
 ]
 
 (* The following invariant specifies the type of every variable
    in the configuration. It also asserts that every actor, once
-   spawned, has a location. *)
+   spawned, has a location; and every message in droppedMsgs must have
+   first been admitted. *)
 TypeOK == 
-  /\ actors           \in [ActorName -> ActorState \cup {null}]
-  /\ snapshots        \in [ActorName -> ActorState \cup {null}]
-  /\ BagToSet(msgs)   \subseteq Message
-  /\ location         \in [ActorName -> NodeID \cup {null}]  \* NEW
-  /\ ingress          \in [NodeID \X NodeID -> IngressState] \* NEW
-  /\ ingressSnapshots \in [NodeID \X NodeID -> IngressState] \* NEW
+  /\ actors                \in [ActorName -> ActorState \cup {null}]
+  /\ snapshots             \in [ActorName -> ActorState \cup {null}]
+  /\ BagToSet(msgs)        \subseteq Message
+  /\ BagToSet(droppedMsgs) \subseteq Message
+  /\ location              \in [ActorName -> NodeID \cup {null}]  \* NEW
+  /\ ingress               \in [NodeID \X NodeID -> IngressState] \* NEW
+  /\ ingressSnapshots      \in [NodeID \X NodeID -> IngressState] \* NEW
   /\ \A a \in Actors: location[a] # null 
+  /\ \A m \in droppedMsgs: m.admitted
 
 InitialActorState == M!InitialActorState
 
 InitialIngressState == [
     shunned      |-> FALSE,
     sendCount    |-> [a \in ActorName |-> 0],
-    sentRefs     |-> [a,b \in ActorName |-> 0],
-    droppedCount |-> [a \in ActorName |-> 0],
-    droppedRefs  |-> [a,b \in ActorName |-> 0]
+    sentRefs     |-> [a,b \in ActorName |-> 0]
 ]
 
 InitialConfiguration(initialActor, node, actorState) == 
@@ -62,15 +63,18 @@ InitialConfiguration(initialActor, node, actorState) ==
     /\ ingress          = [N1, N2 \in NodeID |-> InitialIngressState]
     /\ ingressSnapshots = [N1, N2 \in NodeID |-> InitialIngressState]
     /\ location         = (initialActor :> node) @@ [a \in ActorName |-> null]
+    /\ droppedMsgs      = EmptyBag
 
 -----------------------------------------------------------------------------
 (* DEFINITIONS *)
 
 (* A message is admissible if it is not already admitted and the origin
    node is not shunned by the destination node. *)
-AdmissibleMsgs == { m \in BagToSet(msgs) : 
+AdmissibleMsgs   == { m \in BagToSet(msgs) : 
     ~m.admitted /\ ~ingress[m.origin, location[m.target]].shunned }
-AdmittedMsgs == { m \in BagToSet(msgs) : m.admitted }
+AdmittedMsgs     == { m \in BagToSet(msgs) : m.admitted }
+droppedMsgsTo(a) == { m \in BagToSet(droppedMsgs) : m.target = a }
+droppedRefsTo(a) == { m \in BagToSet(droppedMsgs) : a \in m.refs }
 
 (* Because inadmissible messages can never be delivered, we
    update the definition of `msgsTo' to exclude them. This causes several
@@ -131,44 +135,25 @@ AppearsNonFaulty          == Actors \ AppearsFaulty
 
 NonExiledSnapshots        == Snapshots \ ApparentlyExiledActors
 
-(* The total number of dropped messages to `b' is reflected in the state of its
-   local ingress actors. *)
-droppedMsgsTo(b) ==
-    sum([ N \in NodeID |-> ingress[N, location[b]].droppedCount[b]])
-apparentDroppedMsgsTo(b) ==
-    sum([ N \in NodeID |-> ingressSnapshots[N, location[b]].droppedCount[b]])
-
-(* The total number of dropped references to `b' is reflected in the state of
-   ingress actors throughout the cluster. We are only interested in effective
-   dropped references, i.e. references sent to non-exiled actors. *)
-droppedRefCount(a,b) == 
-    sum([ N \in NodeID |-> ingress[N, location[a]].droppedRefs[a, b] ])
-apparentDroppedRefCount(a,b) == 
-    sum([ N \in NodeID |-> ingressSnapshots[N, location[a]].droppedRefs[a, b] ])
-droppedRefsTo(b) ==
-    sum([ a \in NonFaultyActors |-> droppedRefCount(a, b) ])
-apparentDroppedRefsTo(b) ==
-    sum([ a \in AppearsNonFaulty |-> apparentDroppedRefCount(a, b) ])
-
 -----------------------------------------------------------------------------
 (* TRANSITIONS *)
 
-Idle(a)         == M!Idle(a)         /\ UNCHANGED <<location,ingress,ingressSnapshots>>
-Deactivate(a,b) == M!Deactivate(a,b) /\ UNCHANGED <<location,ingress,ingressSnapshots>>
-Send(a,b,m)     == M!Send(a,b,m)     /\ UNCHANGED <<location,ingress,ingressSnapshots>>
-Receive(a,m)    == M!Receive(a,m)    /\ UNCHANGED <<location,ingress,ingressSnapshots>>
-Snapshot(a)     == M!Snapshot(a)     /\ UNCHANGED <<location,ingress,ingressSnapshots>>
-Crash(a)        == M!Crash(a)        /\ UNCHANGED <<location,ingress,ingressSnapshots>>
-Monitor(a,b)    == M!Monitor(a,b)    /\ UNCHANGED <<location,ingress,ingressSnapshots>>
-Notify(a,b)     == M!Notify(a,b)     /\ UNCHANGED <<location,ingress,ingressSnapshots>>
-Register(a)     == M!Register(a)     /\ UNCHANGED <<location,ingress,ingressSnapshots>>
-Wakeup(a)       == M!Wakeup(a)       /\ UNCHANGED <<location,ingress,ingressSnapshots>>
-Unregister(a)   == M!Unregister(a)   /\ UNCHANGED <<location,ingress,ingressSnapshots>>
+Idle(a)         == M!Idle(a)         /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
+Deactivate(a,b) == M!Deactivate(a,b) /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
+Send(a,b,m)     == M!Send(a,b,m)     /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
+Receive(a,m)    == M!Receive(a,m)    /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
+Snapshot(a)     == M!Snapshot(a)     /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
+Crash(a)        == M!Crash(a)        /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
+Monitor(a,b)    == M!Monitor(a,b)    /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
+Notify(a,b)     == M!Notify(a,b)     /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
+Register(a)     == M!Register(a)     /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
+Wakeup(a)       == M!Wakeup(a)       /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
+Unregister(a)   == M!Unregister(a)   /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 
 Spawn(a,b,state,N) == 
     /\ M!Spawn(a, b, state)
     /\ location' = [location EXCEPT ![b] = N]
-    /\ UNCHANGED <<msgs,ingress,ingressSnapshots>>
+    /\ UNCHANGED <<msgs,ingress,ingressSnapshots,droppedMsgs>>
 
 Admit(m) ==
     LET a  == m.target
@@ -179,34 +164,38 @@ Admit(m) ==
     /\ ingress' = [ingress EXCEPT ![N1,N2].sendCount[a] = @ + 1, 
                                   ![N1,N2].sentRefs     = @ ++ B]
     /\ msgs' = replace(msgs, m, [m EXCEPT !.admitted = TRUE])
+    /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location,droppedMsgs>>
+
+(* Dropped messages are admitted (if necessary) by the recipient ingress
+   actor and then added to the droppedMsgs bag. *)
+Drop(m) == 
+    /\ IF ~m.admitted THEN 
+        LET a  == m.target
+            N1 == m.origin 
+            N2 == location[a]
+            B  == [ <<b,c>> \in {a} \X m.refs |-> 1 ]
+        IN
+        ingress' = [ingress EXCEPT ![N1,N2].sendCount[a] = @ + 1, 
+                                   ![N1,N2].sentRefs     = @ ++ B]
+       ELSE UNCHANGED <<ingress>>
+    /\ msgs' = remove(msgs, m)
+    /\ droppedMsgs' = put(droppedMsgs, [m EXCEPT !.admitted = TRUE])
     /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
 
-(* If an admitted message is dropped, then it is added to the ingress's bag of dropped messages. 
-   If the ingress actor learns that a non-admitted message has been dropped, then the message is
-   added both to the sent bag and the dropped bag. *)
-Drop(m) == 
-    LET a  == m.target
-        N1 == m.origin 
-        N2 == location[a]
-        B  == [ <<b,c>> \in {a} \X m.refs |-> 1 ]
-    IN
-    /\ msgs' = remove(msgs, m)
-    /\ IF m.admitted THEN 
-           ingress' = [ingress EXCEPT ![N1,N2].droppedCount[a] = @ + 1, 
-                                      ![N1,N2].droppedRefs     = @ ++ B]
-       ELSE
-           ingress' = [ingress EXCEPT ![N1,N2].droppedCount[a] = @ + 1, 
-                                      ![N1,N2].droppedRefs     = @ ++ B,
-                                      ![N1,N2].sendCount[a]    = @ + 1, 
-                                      ![N1,N2].sentRefs        = @ ++ B]
-    /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location>>
+(* Some time after a message has been dropped, the recipient actor's local
+   state is updated. *)
+DetectDropped(a, m) ==
+    /\ droppedMsgs' = remove(droppedMsgs, m)
+    /\ actors' = [actors EXCEPT ![a].recvCount = @ + 1, 
+                                ![a].deactivated = @ ++ [c \in m.refs |-> 1]]
+    /\ UNCHANGED <<msgs,snapshots,ingress,ingressSnapshots,location>>
 
 (* When N2 shuns N1, the ingress actor at N2 is updated. If N1 is now
    exiled, we mark the actors as "exiled" to prevent them from taking
    snapshots. *)
 Shun(N1, N2) ==
     /\ ingress' = [ingress EXCEPT ![N1,N2].shunned = TRUE]
-    /\ UNCHANGED <<actors,msgs,snapshots,ingressSnapshots,location>>
+    /\ UNCHANGED <<actors,msgs,snapshots,ingressSnapshots,location,droppedMsgs>>
 
 (* To reduce the model checking state space, the `Shun' rule can be replaced with the following `Exile'
    rule. This is safe because, for any execution in which a faction G_1 all shuns another faction G_2,
@@ -214,12 +203,12 @@ Shun(N1, N2) ==
 Exile(G1, G2) ==
     /\ ingress' =
         [N1 \in G1, N2 \in G2 |-> [ingress[N1, N2] EXCEPT !.shunned = TRUE]] @@ ingress
-    /\ UNCHANGED <<actors,msgs,snapshots,ingressSnapshots,location>>
+    /\ UNCHANGED <<actors,msgs,snapshots,ingressSnapshots,location,droppedMsgs>>
 
 (* Ingress actors can record snapshots. *)
 IngressSnapshot(N1, N2) ==
     /\ ingressSnapshots' = [ingressSnapshots EXCEPT ![N1,N2] = ingress[N1,N2]]
-    /\ UNCHANGED <<actors,msgs,snapshots,ingress,location>>
+    /\ UNCHANGED <<actors,msgs,snapshots,ingress,location,droppedMsgs>>
 
 -----------------------------------------------------------------------------
 
@@ -246,13 +235,16 @@ Next ==
     \/ \E a \in Actors \ ExiledActors: Snapshot(a)
     \/ \E a \in BusyActors \ ExiledActors: Crash(a)
     \/ \E a \in BusyActors \ ExiledActors: \E b \in acqs(a): Monitor(a,b)
-    \/ \E a \in IdleActors \ ExiledActors: \E b \in FaultyActors \intersect M!monitoredBy(a): Notify(a,b)
+    \/ \E a \in IdleActors \ ExiledActors: \E b \in FaultyActors \intersect M!monitoredBy(a): 
+        Notify(a,b)
         \* UPDATE: Actors are notified when monitored actors are exiled.
     \/ \E a \in (BusyActors \ Roots) \ ExiledActors: Register(a)
     \/ \E a \in (IdleActors \intersect Roots) \ ExiledActors: Wakeup(a)
     \/ \E a \in (BusyActors \intersect Roots) \ ExiledActors: Unregister(a)
     \/ \E m \in AdmissibleMsgs: Admit(m) \* NEW
     \/ \E m \in AdmissibleMsgs \union AdmittedMsgs: Drop(m)  \* NEW
+    \/ \E a \in IdleActors \ ExiledActors: \E m \in droppedMsgsTo(a): 
+        DetectDropped(m.target, m)  \* NEW
     \/ \E N2 \in NonExiledNodes: \E N1 \in ShunnableBy(N2): Shun(N1,N2) \* NEW
     \/ \E N1 \in NodeID: \E N2 \in NonExiledNodes: 
         ingress[N1,N2] # ingressSnapshots[N1,N2] /\ IngressSnapshot(N1,N2) \* NEW
@@ -315,17 +307,12 @@ effectiveCreatedCount(a, b) ==
 
 (* Once an actor `a' is exiled, all its references are effectively deactivated. Thus the effective 
    deactivated count is equal to the effective created count. Note that any references sent to `a'
-   that were dropped are implicitly included in this count.
-   
-   If an actor `a' is not exiled, all the references that were sent to `a' and dropped are effectively
-   deactivated. Thus the effective deactivated count is the sum of an actor's actually deactivated references
-   the number of dropped references. *)
+   that were dropped are implicitly included in this count. *)
 effectiveDeactivatedCount(a, b) == 
     IF a \in ApparentlyExiledActors THEN 
         effectiveCreatedCount(a, b) 
     ELSE 
-        (IF a \in Snapshots THEN snapshots[a].deactivated[b] ELSE 0) +
-        apparentDroppedRefCount(a,b)
+        IF a \in Snapshots THEN snapshots[a].deactivated[b] ELSE 0
 
 (* Once an actor `a' is exiled, the number of messages that `a' effectively sent to some `b'
    is equal to the number of messages admitted by the ingress actor at `b''s node. Thus the
@@ -341,16 +328,13 @@ effectiveSendCount(b) ==
    dropped messages sent to it. Note that dropped messages from exiled actors are
    also included in this count. *)
 effectiveReceiveCount(b) == 
-    (IF b \in Snapshots THEN snapshots[b].recvCount ELSE 0) +
-    apparentDroppedMsgsTo(b)
+    IF b \in Snapshots THEN snapshots[b].recvCount ELSE 0
 
 (* Historical and apparent acquaintances now incorporate ingress snapshot information. 
    Once an actor appears exiled, it is no longer considered a historical or potential inverse
-   acquaintance. In addition, if all references to `b' sent to `a' were dropped, then `a'
-   is not considered a historical inverse acquaintance of `b'; this is because snapshots from
-   `a' are not needed to determine whether `b' is quiescent.  *)
+   acquaintance.  *)
 historicalIAcqs(c) == { b \in Actors : 
-    effectiveCreatedCount(b, c) > apparentDroppedRefCount(b,c) }
+    effectiveCreatedCount(b, c) > 0 }
 apparentIAcqs(c)   == { b \in Actors : 
     effectiveCreatedCount(b, c) > effectiveDeactivatedCount(b, c) }
 
@@ -403,8 +387,8 @@ SnapshotsInsufficient ==
     CHOOSE S \in SUBSET Actors : 
     /\ \A a \in NonExiledActors: ~SnapshotUpToDate(a) => a \in S
     /\ \A a \in NonFaultyActors:
-        /\ droppedMsgsTo(a) # apparentDroppedMsgsTo(a) => a \in S
-        /\ droppedRefsTo(a) # apparentDroppedRefsTo(a) => a \in S
+        /\ droppedMsgsTo(a) # 0 => a \in S
+        /\ droppedRefsTo(a) # 0 => a \in S
         \* NEW: Dropped messages to nonfaulty actors must be accounted for.
     /\ \A a \in ExiledActors: 
         \* NEW: If an exiled actor does not already appear quiescent, then ingress
@@ -423,8 +407,8 @@ SnapshotsInsufficientUpToAFault ==
     CHOOSE S \in SUBSET Actors : 
     /\ \A a \in NonExiledActors: ~SnapshotUpToDate(a) => a \in S
     /\ \A a \in NonFaultyActors:
-        /\ droppedMsgsTo(a) # apparentDroppedMsgsTo(a) => a \in S
-        /\ droppedRefsTo(a) # apparentDroppedRefsTo(a) => a \in S
+        /\ droppedMsgsTo(a) # 0 => a \in S
+        /\ droppedRefsTo(a) # 0 => a \in S
     /\ \A a \in ExiledActors:
         a \notin AppearsQuiescentUpToAFault /\ a \notin ApparentlyExiledActors => a \in S
     /\ \A a \in ApparentlyNonExiledActors, b \in NonFaultyActors :
