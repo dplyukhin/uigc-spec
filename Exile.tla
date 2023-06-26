@@ -70,6 +70,7 @@ InitialConfiguration(initialActor, node, actorState) ==
    node is not shunned by the destination node. *)
 AdmissibleMsgs == { m \in BagToSet(msgs) : 
     ~m.admitted /\ ~ingress[m.origin, location[m.target]].shunned }
+AdmittedMsgs == { m \in BagToSet(msgs) : m.admitted }
 
 (* Because inadmissible messages can never be delivered, we
    update the definition of `msgsTo' to exclude them. This causes several
@@ -251,7 +252,7 @@ Next ==
     \/ \E a \in (IdleActors \intersect Roots) \ ExiledActors: Wakeup(a)
     \/ \E a \in (BusyActors \intersect Roots) \ ExiledActors: Unregister(a)
     \/ \E m \in AdmissibleMsgs: Admit(m) \* NEW
-    \/ \E m \in BagToSet(msgs): Drop(m)  \* NEW
+    \/ \E m \in AdmissibleMsgs \union AdmittedMsgs: Drop(m)  \* NEW
     \/ \E N2 \in NonExiledNodes: \E N1 \in ShunnableBy(N2): Shun(N1,N2) \* NEW
     \/ \E N1 \in NodeID: \E N2 \in NonExiledNodes: 
         ingress[N1,N2] # ingressSnapshots[N1,N2] /\ IngressSnapshot(N1,N2) \* NEW
