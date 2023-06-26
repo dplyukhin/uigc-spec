@@ -333,7 +333,7 @@ effectiveReceiveCount(b) ==
    is not considered a historical inverse acquaintance of `b'; this is because snapshots from
    `a' are not needed to determine whether `b' is quiescent.  *)
 historicalIAcqs(c) == { b \in Actors : 
-    effectiveCreatedCount(b, c) > droppedRefCount(a,b) }
+    effectiveCreatedCount(b, c) > droppedRefCount(b,c) }
 apparentIAcqs(c)   == { b \in Actors : 
     effectiveCreatedCount(b, c) > effectiveDeactivatedCount(b, c) }
 
