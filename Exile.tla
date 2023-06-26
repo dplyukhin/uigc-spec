@@ -73,8 +73,6 @@ InitialConfiguration(initialActor, node, actorState) ==
 AdmissibleMsgs   == { m \in BagToSet(msgs) : 
     ~m.admitted /\ ~ingress[m.origin, location[m.target]].shunned }
 AdmittedMsgs     == { m \in BagToSet(msgs) : m.admitted }
-droppedMsgsTo(a) == { m \in BagToSet(droppedMsgs) : m.target = a }
-droppedRefsTo(a) == { m \in BagToSet(droppedMsgs) : a \in m.refs }
 
 (* Because inadmissible messages can never be delivered, we
    update the definition of `msgsTo' to exclude them. This causes several
@@ -134,6 +132,9 @@ AppearsFaulty             == M!AppearsCrashed \union ApparentlyExiledActors
 AppearsNonFaulty          == Actors \ AppearsFaulty
 
 NonExiledSnapshots        == Snapshots \ ApparentlyExiledActors
+
+droppedMsgsTo(a) == { m \in BagToSet(droppedMsgs) : m.target = a }
+droppedRefsTo(a) == { m \in BagToSet(droppedMsgs) : a \in m.refs /\ m.target \notin FaultyActors }
 
 -----------------------------------------------------------------------------
 (* TRANSITIONS *)
