@@ -48,7 +48,7 @@ TypeOK ==
   /\ ingress               \in [NodeID \X NodeID -> IngressState] \* NEW
   /\ ingressSnapshots      \in [NodeID \X NodeID -> IngressState] \* NEW
   /\ \A a \in Actors: location[a] # null 
-  /\ \A m \in droppedMsgs: m.admitted
+  /\ \A m \in BagToSet(droppedMsgs): m.admitted
 
 InitialActorState == M!InitialActorState
 
@@ -387,8 +387,8 @@ SnapshotsInsufficient ==
     CHOOSE S \in SUBSET Actors : 
     /\ \A a \in NonExiledActors: ~SnapshotUpToDate(a) => a \in S
     /\ \A a \in NonFaultyActors:
-        /\ droppedMsgsTo(a) # 0 => a \in S
-        /\ droppedRefsTo(a) # 0 => a \in S
+        /\ droppedMsgsTo(a) # {} => a \in S
+        /\ droppedRefsTo(a) # {} => a \in S
         \* NEW: Dropped messages to nonfaulty actors must be accounted for.
     /\ \A a \in ExiledActors: 
         \* NEW: If an exiled actor does not already appear quiescent, then ingress
@@ -407,8 +407,8 @@ SnapshotsInsufficientUpToAFault ==
     CHOOSE S \in SUBSET Actors : 
     /\ \A a \in NonExiledActors: ~SnapshotUpToDate(a) => a \in S
     /\ \A a \in NonFaultyActors:
-        /\ droppedMsgsTo(a) # 0 => a \in S
-        /\ droppedRefsTo(a) # 0 => a \in S
+        /\ droppedMsgsTo(a) # {} => a \in S
+        /\ droppedRefsTo(a) # {} => a \in S
     /\ \A a \in ExiledActors:
         a \notin AppearsQuiescentUpToAFault /\ a \notin ApparentlyExiledActors => a \in S
     /\ \A a \in ApparentlyNonExiledActors, b \in NonFaultyActors :
