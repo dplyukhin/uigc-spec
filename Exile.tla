@@ -145,9 +145,9 @@ droppedRefCount(a,b) ==
 apparentDroppedRefCount(a,b) == 
     sum([ N \in NodeID |-> ingressSnapshots[N, location[a]].droppedRefs[a, b] ])
 droppedRefsTo(b) ==
-    sum([ a \in NonExiledActors |-> droppedRefCount(a, b) ])
+    sum([ a \in NonFaultyActors |-> droppedRefCount(a, b) ])
 apparentDroppedRefsTo(b) ==
-    sum([ a \in ApparentlyNonExiledActors |-> apparentDroppedRefCount(a, b) ])
+    sum([ a \in AppearsNonFaulty |-> apparentDroppedRefCount(a, b) ])
 
 -----------------------------------------------------------------------------
 (* TRANSITIONS *)
