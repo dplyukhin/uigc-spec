@@ -78,19 +78,11 @@ ExiledNodes ==
         /\ G # NodeID
         /\ \A N1 \in G, N2 \in NodeID \ G: ingress[N1,N2].shunned
     )
-    
 NonExiledNodes  == NodeID \ ExiledNodes
 ExiledActors    == { a \in Actors : location[a] \in ExiledNodes }
 NonExiledActors == Actors \ ExiledActors
 FaultyActors    == CrashedActors \union ExiledActors
 NonFaultyActors == Actors \ FaultyActors
-
-NewlyExiledNodes == 
-    LargestSubset(NodeID, LAMBDA G:
-        /\ G # NodeID
-        /\ \A N1 \in G, N2 \in NodeID \ G: ingress'[N1,N2].shunned
-    )
-NewlyExiledActors == { a \in Actors : location[a] \in NewlyExiledNodes }
 
 (* A message must be admitted before being delivered. *)
 deliverableMsgsTo(a) == { m \in msgsTo(a) : m.admitted }
@@ -293,7 +285,7 @@ effectiveCreatedCount(a, b) ==
           ingressSnapshots[N1, N2].sentRefs[a, b] ])
 
 (* The total number of references to `b' sent to `a' that have been dropped. *)
-droppedRefCount(a,b) == 
+effectiveDroppedRefCount(a,b) == 
     sum([ N \in NodeID |-> ingressSnapshots[N, location[a]].droppedRefs[a, b] ])
 
 (* Once an actor `a' is exiled, all its references are effectively deactivated. Thus the effective 
@@ -308,7 +300,7 @@ effectiveDeactivatedCount(a, b) ==
         effectiveCreatedCount(a, b) 
     ELSE 
         (IF a \in Snapshots THEN snapshots[a].deactivated[b] ELSE 0) +
-        droppedRefCount(a,b)
+        effectiveDroppedRefCount(a,b)
 
 (* Once an actor `a' is exiled, the number of messages that `a' effectively sent to some `b'
    is equal to the number of messages admitted by the ingress actor at `b''s node. Thus the
@@ -333,7 +325,7 @@ effectiveReceiveCount(b) ==
    is not considered a historical inverse acquaintance of `b'; this is because snapshots from
    `a' are not needed to determine whether `b' is quiescent.  *)
 historicalIAcqs(c) == { b \in Actors : 
-    effectiveCreatedCount(b, c) > droppedRefCount(b,c) }
+    effectiveCreatedCount(b, c) > effectiveDroppedRefCount(b,c) }
 apparentIAcqs(c)   == { b \in Actors : 
     effectiveCreatedCount(b, c) > effectiveDeactivatedCount(b, c) }
 
@@ -382,9 +374,22 @@ Soundness == AppearsQuiescent \subseteq Quiescent
 SnapshotUpToDate(a) == M!SnapshotUpToDate(a)
 RecentEnough(a,b) == M!RecentEnough(a,b)
 
+droppedMsgsTo(b) ==
+    sum([ N \in NodeID |-> ingress[N, location[b]].droppedMsgsTo[b]])
+apparentDroppedMsgsTo(b) ==
+    sum([ N \in NodeID |-> ingressSnapshots[N, location[b]].droppedMsgsTo[b]])
+droppedRefsTo(b) ==
+    sum([ N \in NodeID, a \in NonExiledActors |-> ingress[N, location[a]].droppedRefs[a, b] ])
+apparentDroppedRefsTo(b) ==
+    sum([ N \in NodeID, a \in NonExiledActors |-> ingressSnapshots[N, location[a]].droppedRefs[a, b] ])
+
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET Actors : 
-    /\ \A a \in Actors \ ExiledActors: ~SnapshotUpToDate(a) => a \in S
+    /\ \A a \in Actors \ ExiledActors: 
+        /\ ~SnapshotUpToDate(a) => a \in S
+        /\ droppedMsgsTo(a) # apparentDroppedMsgsTo(a) => a \in S
+        /\ droppedRefsTo(a) # apparentDroppedRefsTo(a) => a \in S
+            \* NEW: Dropped messages from non-exiled nodes must be accounted for.
     /\ \A a \in ExiledActors: 
         \* NEW: If an exiled actor does not already appear quiescent, then ingress
         \* actor snapshots are needed.
@@ -394,26 +399,23 @@ SnapshotsInsufficient ==
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in effectivePiacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
-        /\ LET N1 == location[a]
-               N2 == location[b] IN
-           ingress[N1,N2].droppedCount[b] # ingressSnapshots[N1,N2].droppedCount[b] => b \in S 
-            \* NEW: Dropped messages from non-exiled nodes must be accounted for.
 SnapshotsSufficient == Actors \ SnapshotsInsufficient
 
 (* The next definition is identical to the one above, except it uses AppearsQuiescentUpToAFault
    instead of AppearsQuiescent. *)
 SnapshotsInsufficientUpToAFault == 
     CHOOSE S \in SUBSET Actors : 
-    /\ \A a \in Actors \ ExiledActors: ~SnapshotUpToDate(a) => a \in S
+    /\ \A a \in Actors \ ExiledActors:
+        /\ ~SnapshotUpToDate(a) => a \in S
+        /\ droppedMsgsTo(a) # apparentDroppedMsgsTo(a) => a \in S
+        /\ droppedRefsTo(a) # apparentDroppedRefsTo(a) => a \in S
+            \* NEW: Dropped messages from non-exiled nodes must be accounted for.
     /\ \A a \in ExiledActors:
         a \notin AppearsQuiescentUpToAFault /\ a \notin ApparentlyExiledActors => a \in S
     /\ \A a \in Actors \ ApparentlyExiledActors, b \in NonFaultyActors :
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in effectivePiacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
-        /\ LET N1 == location[a]
-               N2 == location[b] IN
-           ingress[N1,N2].droppedCount[b] # ingressSnapshots[N1,N2].droppedCount[b] => b \in S 
 SnapshotsSufficientUpToAFault == Actors \ SnapshotsInsufficientUpToAFault
 
 (* The specificationstates that a non-exiled actor appears quiescent if and only
