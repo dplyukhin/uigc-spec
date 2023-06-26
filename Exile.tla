@@ -292,8 +292,13 @@ effectiveCreatedCount(a, b) ==
     sum([ N1 \in ApparentlyExiledNodes, N2 \in NodeID \ ApparentlyExiledNodes |-> 
           ingressSnapshots[N1, N2].sentRefs[a, b] ])
 
+(* The total number of references to `b' sent to `a' that have been dropped. *)
+droppedRefCount(a,b) == 
+    sum([ N \in NodeID |-> ingressSnapshots[N, location[a]].droppedRefs[a, b] ])
+
 (* Once an actor `a' is exiled, all its references are effectively deactivated. Thus the effective 
-   deactivated count is equal to the effective created count. 
+   deactivated count is equal to the effective created count. Note that any references sent to `a'
+   that were dropped are implicitly included in this count.
    
    If an actor `a' is not exiled, all the references that were sent to `a' and dropped are effectively
    deactivated. Thus the effective deactivated count is the sum of an actor's actually deactivated references
@@ -303,27 +308,32 @@ effectiveDeactivatedCount(a, b) ==
         effectiveCreatedCount(a, b) 
     ELSE 
         (IF a \in Snapshots THEN snapshots[a].deactivated[b] ELSE 0) +
-        sum([ N \in NodeID |-> ingressSnapshots[N, location[a]].droppedRefs[a, b] ])
+        droppedRefCount(a,b)
 
 (* Once an actor `a' is exiled, the number of messages that `a' effectively sent to some `b'
    is equal to the number of messages admitted by the ingress actor at `b''s node. Thus the
    effective total send count for `b' is the sum of the send counts from non-exiled actors
-   and the number of messages for `b' that entered the ingress actor from apparently exiled nodes. *)
+   and the number of messages for `b' that entered the ingress actor from apparently exiled nodes. 
+   Note that dropped messages to `b' are implicitly included in the sum. *)
 effectiveSendCount(b) == 
     sum([ a \in NonExiledSnapshots |-> snapshots[a].sendCount[b]]) +
     sum([ N1 \in ApparentlyExiledNodes |-> ingressSnapshots[N1, location[b]].sendCount[b] ])
 
-(* All messages to actor `b' that were dropped are effectively received. Thus an actor's
+(* All messages to `b' that were dropped are effectively received. Thus an actor's
    effective receive count is the sum of its actual receive count and the number of 
-   dropped messages sent to it. *)
+   dropped messages sent to it. Note that dropped messages from exiled actors are
+   also included in this count. *)
 effectiveReceiveCount(b) == 
     (IF b \in Snapshots THEN snapshots[b].recvCount ELSE 0) +
     sum([ N \in NodeID |-> ingressSnapshots[N, location[b]].droppedCount[b] ])
 
-(* NEW: Historical and apparent acquaintances now incorporate ingress snapshot information. 
+(* Historical and apparent acquaintances now incorporate ingress snapshot information. 
    Once an actor appears exiled, it is no longer considered a historical or potential inverse
-   acquaintance. *)
-historicalIAcqs(c) == { b \in Actors : effectiveCreatedCount(b, c) > 0 }
+   acquaintance. In addition, if all references to `b' sent to `a' were dropped, then `a'
+   is not considered a historical inverse acquaintance of `b'; this is because snapshots from
+   `a' are not needed to determine whether `b' is quiescent.  *)
+historicalIAcqs(c) == { b \in Actors : 
+    effectiveCreatedCount(b, c) > droppedRefCount(a,b) }
 apparentIAcqs(c)   == { b \in Actors : 
     effectiveCreatedCount(b, c) > effectiveDeactivatedCount(b, c) }
 
