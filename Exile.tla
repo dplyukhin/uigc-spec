@@ -272,7 +272,7 @@ isPotentiallyUnblockedUpToAFault(S) ==
     /\ \A a \in S \union FaultyActors, b \in NonFaultyActors :
         a \in monitoredBy(b) => b \in S
             \* NEW: An actor is not garbage if it monitors an exiled actor.
-
+            
 (* An actor is potentially unblocked if it is potentially unblocked up-to-a-fault
    or it monitors any remote actor. This is because remote actors can always
    become exiled, causing the monitoring actor to be notified. *)
@@ -361,18 +361,18 @@ appearsPotentiallyUnblockedUpToAFault(S) ==
 
 appearsPotentiallyUnblocked(S) == 
     /\ appearsPotentiallyUnblockedUpToAFault(S)
-    /\ \A a \in Snapshots, b \in Snapshots \ AppearsCrashed :
+    /\ \A a \in Actors, b \in Snapshots \ AppearsFaulty :
         /\ (a \in appearsMonitoredBy(b) /\ location[a] # location[b] => b \in S)
             \* NEW: Actors that monitor remote actors are not garbage.
 
 AppearsPotentiallyUnblockedUpToAFault == 
-    CHOOSE S \in SUBSET Snapshots \ AppearsCrashed : 
+    CHOOSE S \in SUBSET Snapshots \ AppearsFaulty : 
     appearsPotentiallyUnblockedUpToAFault(S)
 AppearsQuiescentUpToAFault == 
     Snapshots \ AppearsPotentiallyUnblockedUpToAFault
 
 AppearsPotentiallyUnblocked == 
-    CHOOSE S \in SUBSET Snapshots \ AppearsCrashed :
+    CHOOSE S \in SUBSET Snapshots \ AppearsFaulty :
     appearsPotentiallyUnblocked(S)
 AppearsQuiescent == 
     Snapshots \ AppearsPotentiallyUnblocked
@@ -383,41 +383,39 @@ AppearsQuiescent ==
 SoundnessUpToAFault == AppearsQuiescentUpToAFault \subseteq QuiescentUpToAFault
 Soundness == AppearsQuiescent \subseteq Quiescent
 
-SnapshotUpToDate(a) == M!SnapshotUpToDate(a)
-RecentEnough(a,b) == M!RecentEnough(a,b)
+(* Exiled actors may need to appear exiled in order for all quiescent garbage to be
+   detected. *)
+SnapshotUpToDate(a) == 
+    IF a \in ExiledActors THEN a \in ApparentlyExiledActors ELSE M!SnapshotUpToDate(a)
+RecentEnough(a,b) == 
+    IF a \in ExiledActors THEN a \in ApparentlyExiledActors ELSE M!RecentEnough(a,b)
 
 SnapshotsInsufficient == 
-    CHOOSE S \in SUBSET Actors : 
-    /\ \A a \in NonExiledActors: ~SnapshotUpToDate(a) => a \in S
-    /\ \A a \in NonFaultyActors:
-        /\ droppedMsgsTo(a) # {} => a \in S
-        /\ droppedRefsTo(a) # {} => a \in S
-        \* NEW: Dropped messages to nonfaulty actors must be accounted for.
-    /\ \A a \in ExiledActors: 
-        \* NEW: If an exiled actor does not already appear quiescent, then ingress
-        \* actor snapshots are needed.
-        a \notin AppearsQuiescent /\ a \notin ApparentlyExiledActors => a \in S
-    /\ \A a \in ApparentlyNonExiledActors, b \in NonFaultyActors :
-        \* NEW: We do not need up-to-date snapshots from inverse acquaintances that appear exiled.
-        /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
-        /\ (a \in S /\ a \in piacqs(b) => b \in S)
-        /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
+    CHOOSE S \in SUBSET Actors \ AppearsQuiescent : 
+    \A b \in Actors \ AppearsQuiescent:
+    /\ ~SnapshotUpToDate(b) => b \in S
+    /\ b \in NonFaultyActors /\ droppedMsgsTo(b) # {} => b \in S
+    /\ b \in NonFaultyActors /\ droppedRefsTo(b) # {} => b \in S
+        \* NEW: Dropped messages to nonfaulty actors may need to be accounted for.
+    /\ \A a \in Actors:
+        /\ a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S
+        /\ a \in S /\ a \in piacqs(b) => b \in S
+        /\ a \in S /\ a \in monitoredBy(b) => b \in S
 SnapshotsSufficient == Actors \ SnapshotsInsufficient
 
 (* The next definition is identical to the one above, except it uses AppearsQuiescentUpToAFault
    instead of AppearsQuiescent. *)
 SnapshotsInsufficientUpToAFault == 
-    CHOOSE S \in SUBSET Actors : 
-    /\ \A a \in NonExiledActors: ~SnapshotUpToDate(a) => a \in S
-    /\ \A a \in NonFaultyActors:
-        /\ droppedMsgsTo(a) # {} => a \in S
-        /\ droppedRefsTo(a) # {} => a \in S
-    /\ \A a \in ExiledActors:
-        a \notin AppearsQuiescentUpToAFault /\ a \notin ApparentlyExiledActors => a \in S
-    /\ \A a \in ApparentlyNonExiledActors, b \in NonFaultyActors :
-        /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
-        /\ (a \in S /\ a \in piacqs(b) => b \in S)
-        /\ (a \in S /\ a \in monitoredBy(b) => b \in S)
+    CHOOSE S \in SUBSET Actors \ AppearsQuiescentUpToAFault : 
+    \A b \in Actors \ AppearsQuiescentUpToAFault:
+    /\ ~SnapshotUpToDate(b) => b \in S
+    /\ b \in NonFaultyActors /\ droppedMsgsTo(b) # {} => b \in S
+    /\ b \in NonFaultyActors /\ droppedRefsTo(b) # {} => b \in S
+        \* NEW: Dropped messages to nonfaulty actors may need to be accounted for.
+    /\ \A a \in Actors:
+        /\ a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S
+        /\ a \in S /\ a \in piacqs(b) => b \in S
+        /\ a \in S /\ a \in monitoredBy(b) => b \in S
 SnapshotsSufficientUpToAFault == Actors \ SnapshotsInsufficientUpToAFault
 
 (* The specificationstates that a non-exiled actor appears quiescent if and only
