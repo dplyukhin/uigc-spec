@@ -390,6 +390,14 @@ SnapshotUpToDate(a) ==
 RecentEnough(a,b) == 
     IF a \in ExiledActors THEN a \in ApparentlyExiledActors ELSE M!RecentEnough(a,b)
 
+(* The following property diagnoses the possible reasons that an actor may be actually
+   quiescent and yet not appear quiescent: It may not have a recent enough snapshot,
+   there may be dropped messages that have not yet been delivered, it may be exiled
+   and without appearing exiled, it may have past inverse acquaintances whose snapshots
+   are not recent enough, or it may have current potential inverse acquaintances or
+   monitored actors that do not appear quiescent. All of these problems are eventually
+   resolved in fair executions where actors always eventually take snapshots and actors 
+   always eventually learn about dropped messages. *)
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET Actors \ AppearsQuiescent : 
     \A b \in Actors \ AppearsQuiescent:
@@ -418,7 +426,7 @@ SnapshotsInsufficientUpToAFault ==
         /\ a \in S /\ a \in monitoredBy(b) => b \in S
 SnapshotsSufficientUpToAFault == Actors \ SnapshotsInsufficientUpToAFault
 
-(* The specificationstates that a non-exiled actor appears quiescent if and only
+(* The specification states that a non-exiled actor appears quiescent if and only
    if it is actually quiescent and there are sufficient snapshots to diagnose 
    quiescence. *)
 Spec == 
