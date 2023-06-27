@@ -242,8 +242,8 @@ Next ==
     \/ \E a \in (BusyActors \ Roots) \ ExiledActors: Register(a)
     \/ \E a \in (IdleActors \intersect Roots) \ ExiledActors: Wakeup(a)
     \/ \E a \in (BusyActors \intersect Roots) \ ExiledActors: Unregister(a)
-    \/ \E m \in AdmissibleMsgs: Admit(m) \* NEW
-    \/ \E m \in AdmissibleMsgs \union AdmittedMsgs: Drop(m)  \* NEW
+    \/ \E m \in AdmissibleMsgs: location[m.target] \notin ExiledNodes /\ Admit(m) \* NEW
+    \/ \E m \in AdmissibleMsgs \union AdmittedMsgs: location[m.target] \notin ExiledNodes /\ Drop(m)  \* NEW
     \/ \E a \in IdleActors \ ExiledActors: \E m \in droppedMsgsTo(a): 
         DetectDropped(m.target, m)  \* NEW
     \/ \E N2 \in NonExiledNodes: \E N1 \in ShunnableBy(N2): Shun(N1,N2) \* NEW
