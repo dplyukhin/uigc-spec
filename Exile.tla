@@ -134,7 +134,7 @@ AppearsNonFaulty          == Actors \ AppearsFaulty
 NonExiledSnapshots        == Snapshots \ ApparentlyExiledActors
 
 droppedMsgsTo(a) == { m \in BagToSet(droppedMsgs) : m.target = a }
-droppedRefsTo(a) == { m \in BagToSet(droppedMsgs) : a \in m.refs /\ m.target \notin FaultyActors }
+droppedPIAcqs(b) == { a \in Actors : \E m \in droppedMsgsTo(a) : b \in m.refs }
 
 -----------------------------------------------------------------------------
 (* TRANSITIONS *)
@@ -251,7 +251,6 @@ Next ==
         ingress[N1,N2] # ingressSnapshots[N1,N2] /\ IngressSnapshot(N1,N2) \* NEW
         \* To reduce the TLA+ search space, ingress actors do not take snapshots if
         \* their state has not changed.
-
 \* The Shun rule above can be replaced with the following Exile rule without
 \* loss of generality for faster model checking:
 \* \/ \E G \in SUBSET NonExiledNodes: G # {} /\ G # NonExiledNodes /\ Exile(G, NonExiledNodes \ G)
@@ -386,29 +385,25 @@ Soundness == AppearsQuiescent \subseteq Quiescent
 (* Exiled actors may need to appear exiled in order for all quiescent garbage to be
    detected. *)
 SnapshotUpToDate(a) == 
-    IF a \in ExiledActors THEN a \in ApparentlyExiledActors ELSE M!SnapshotUpToDate(a)
+    IF a \in ExiledActors THEN a \in ApparentlyExiledActors ELSE 
+    IF a \in CrashedActors THEN a \in AppearsCrashed ELSE M!SnapshotUpToDate(a)
 RecentEnough(a,b) == 
-    IF a \in ExiledActors THEN a \in ApparentlyExiledActors ELSE M!RecentEnough(a,b)
-
-(* The following property diagnoses the possible reasons that an actor may be actually
-   quiescent and yet not appear quiescent: It may not have a recent enough snapshot,
-   there may be dropped messages that have not yet been delivered, it may be exiled
-   and without appearing exiled, it may have past inverse acquaintances whose snapshots
-   are not recent enough, or it may have current potential inverse acquaintances or
-   monitored actors that do not appear quiescent. All of these problems are eventually
-   resolved in fair executions where actors always eventually take snapshots and actors 
-   always eventually learn about dropped messages. *)
+    IF a \in ExiledActors THEN a \in ApparentlyExiledActors ELSE 
+    IF a \in CrashedActors THEN a \in AppearsCrashed ELSE M!RecentEnough(a,b)
+    
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET Actors \ AppearsQuiescent : 
     \A b \in Actors \ AppearsQuiescent:
     /\ ~SnapshotUpToDate(b) => b \in S
     /\ b \in NonFaultyActors /\ droppedMsgsTo(b) # {} => b \in S
-    /\ b \in NonFaultyActors /\ droppedRefsTo(b) # {} => b \in S
-        \* NEW: Dropped messages to nonfaulty actors may need to be accounted for.
+        \* NEW: Actors must have been notified about dropped references.
     /\ \A a \in Actors:
         /\ a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S
         /\ a \in S /\ a \in piacqs(b) => b \in S
         /\ a \in S /\ a \in monitoredBy(b) => b \in S
+        /\ a \in S /\ a \in droppedPIAcqs(b) => b \in S
+        \* NEW: Recipients of dropped messages containing references to b
+        \* must be up to date.
 SnapshotsSufficient == Actors \ SnapshotsInsufficient
 
 (* The next definition is identical to the one above, except it uses AppearsQuiescentUpToAFault
@@ -418,12 +413,11 @@ SnapshotsInsufficientUpToAFault ==
     \A b \in Actors \ AppearsQuiescentUpToAFault:
     /\ ~SnapshotUpToDate(b) => b \in S
     /\ b \in NonFaultyActors /\ droppedMsgsTo(b) # {} => b \in S
-    /\ b \in NonFaultyActors /\ droppedRefsTo(b) # {} => b \in S
-        \* NEW: Dropped messages to nonfaulty actors may need to be accounted for.
     /\ \A a \in Actors:
         /\ a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S
         /\ a \in S /\ a \in piacqs(b) => b \in S
         /\ a \in S /\ a \in monitoredBy(b) => b \in S
+        /\ a \in S /\ a \in droppedPIAcqs(b) => b \in S
 SnapshotsSufficientUpToAFault == Actors \ SnapshotsInsufficientUpToAFault
 
 (* The specification states that a non-exiled actor appears quiescent if and only
