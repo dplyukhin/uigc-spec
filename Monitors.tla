@@ -75,6 +75,10 @@ Notify(a,b) ==
                     ![a].status = "busy", ![a].monitored = @ \ {b}]
     /\ UNCHANGED <<msgs,snapshots>>
 
+Unmonitor(a,b) ==
+    /\ actors' = [actors EXCEPT ![a].monitored = @ \ {b}] \* Remove b from the monitored set.
+    /\ UNCHANGED <<msgs,snapshots>>
+
 Register(a) ==
     /\ actors' = [actors EXCEPT ![a].isRoot = TRUE]
     /\ UNCHANGED <<msgs,snapshots>>
@@ -102,6 +106,7 @@ Next ==
     \/ \E a \in BusyActors: Crash(a)
     \/ \E a \in BusyActors: \E b \in acqs(a): Monitor(a,b)
     \/ \E a \in IdleActors: \E b \in CrashedActors \intersect monitoredBy(a): Notify(a,b)
+    \/ \E a \in BusyActors: \E b \in monitoredBy(a): Unmonitor(a,b)
     \/ \E a \in BusyActors \ Roots: Register(a)
     \/ \E a \in IdleActors \intersect Roots : Wakeup(a)
     \/ \E a \in BusyActors \intersect Roots : Unregister(a)

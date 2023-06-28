@@ -146,6 +146,7 @@ Receive(a,m)    == M!Receive(a,m)    /\ UNCHANGED <<location,ingress,ingressSnap
 Snapshot(a)     == M!Snapshot(a)     /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Crash(a)        == M!Crash(a)        /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Monitor(a,b)    == M!Monitor(a,b)    /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
+Unmonitor(a,b)  == M!Unmonitor(a,b)  /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Notify(a,b)     == M!Notify(a,b)     /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Register(a)     == M!Register(a)     /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Wakeup(a)       == M!Wakeup(a)       /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
@@ -239,6 +240,7 @@ Next ==
     \/ \E a \in IdleActors \ ExiledActors: \E b \in FaultyActors \intersect M!monitoredBy(a): 
         Notify(a,b)
         \* UPDATE: Actors are notified when monitored actors are exiled.
+    \/ \E a \in BusyActors \ ExiledActors: \E b \in monitoredBy(a): Unmonitor(a,b)
     \/ \E a \in (BusyActors \ Roots) \ ExiledActors: Register(a)
     \/ \E a \in (IdleActors \intersect Roots) \ ExiledActors: Wakeup(a)
     \/ \E a \in (BusyActors \intersect Roots) \ ExiledActors: Unregister(a)
