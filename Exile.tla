@@ -389,17 +389,19 @@ SnapshotUpToDate(a) ==
 RecentEnough(a,b) == 
     IF a \in ExiledActors THEN a \in ApparentlyExiledActors ELSE 
     IF a \in CrashedActors THEN a \in AppearsCrashed ELSE M!RecentEnough(a,b)
+BeingExiled(a) == 
+    \E N \in NonExiledNodes: 
+    location[a] \in ShunnedBy(N) /\ location[a] \notin ExiledNodes
     
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET Actors: \A b \in Actors:
     /\ ~SnapshotUpToDate(b) => b \in S
     /\ b \in NonFaultyActors /\ droppedMsgsTo(b) # {} => b \in S
         \* NEW: Actors may need to be notified about dropped references.
-    /\ \A N \in NonExiledNodes: 
-        location[b] \in ShunnedBy(N) /\ location[b] \notin ExiledNodes => b \in S
+    /\ BeingExiled(b) => b \in S
         \* NEW: Nodes may need to finish being exiled.
     /\ \A a \in Actors:
-        /\ a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S
+        /\ a \in pastIAcqs(b) /\ (~RecentEnough(a,b) \/ BeingExiled(a)) => b \in S
         /\ a \in S /\ a \in piacqs(b) => b \in S
         /\ a \in S /\ a \in monitoredBy(b) => b \in S
         /\ a \in S /\ a \in droppedPIAcqs(b) => b \in S
