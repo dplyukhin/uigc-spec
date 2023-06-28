@@ -246,14 +246,14 @@ Next ==
     \/ \E m \in AdmissibleMsgs \union AdmittedMsgs: location[m.target] \notin ExiledNodes /\ Drop(m)  \* NEW
     \/ \E a \in IdleActors \ ExiledActors: \E m \in droppedMsgsTo(a): 
         DetectDropped(m.target, m)  \* NEW
-    \/ \E N2 \in NonExiledNodes: \E N1 \in ShunnableBy(N2): Shun(N1,N2) \* NEW
     \/ \E N1 \in NodeID: \E N2 \in NonExiledNodes: 
         ingress[N1,N2] # ingressSnapshots[N1,N2] /\ IngressSnapshot(N1,N2) \* NEW
         \* To reduce the TLA+ search space, ingress actors do not take snapshots if
         \* their state has not changed.
-\* The Shun rule above can be replaced with the following Exile rule without
-\* loss of generality for faster model checking:
-\* \/ \E G \in SUBSET NonExiledNodes: G # {} /\ G # NonExiledNodes /\ Exile(G, NonExiledNodes \ G)
+    \/ \E N2 \in NonExiledNodes: \E N1 \in ShunnableBy(N2): Shun(N1,N2) \* NEW
+    \* The Shun rule above can be replaced with the following Exile rule without
+    \* loss of generality for faster model checking:
+    \* \/ \E G \in SUBSET NonExiledNodes: G # {} /\ G # NonExiledNodes /\ Exile(G, NonExiledNodes \ G)
 
 -----------------------------------------------------------------------------
 (* ACTUAL GARBAGE *)
@@ -376,7 +376,6 @@ AppearsPotentiallyUnblocked ==
 AppearsQuiescent == 
     Snapshots \ AppearsPotentiallyUnblocked
 
-
 -----------------------------------------------------------------------------
 (* SOUNDNESS AND COMPLETENESS PROPERTIES *)
 
@@ -393,14 +392,17 @@ SnapshotsInsufficient ==
     CHOOSE S \in SUBSET Actors: \A b \in Actors:
     /\ ~SnapshotUpToDate(b) => b \in S
     /\ b \in NonFaultyActors /\ droppedMsgsTo(b) # {} => b \in S
-        \* NEW: Actors must have been notified about dropped references.
+        \* NEW: Actors may need to be notified about dropped references.
+    /\ \A N \in NonExiledNodes: 
+        location[b] \in ShunnedBy(N) /\ location[b] \notin ExiledNodes => b \in S
+        \* NEW: Nodes may need to finish being exiled.
     /\ \A a \in Actors:
         /\ a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S
         /\ a \in S /\ a \in piacqs(b) => b \in S
         /\ a \in S /\ a \in monitoredBy(b) => b \in S
         /\ a \in S /\ a \in droppedPIAcqs(b) => b \in S
         \* NEW: Recipients of dropped messages containing references to b
-        \* must be up to date.
+        \* may need to have sufficient snapshots.
 SnapshotsSufficient == Actors \ SnapshotsInsufficient
 
 (* The specification states that a non-exiled actor appears quiescent if and only
