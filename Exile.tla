@@ -379,8 +379,6 @@ AppearsQuiescent ==
 
 -----------------------------------------------------------------------------
 (* SOUNDNESS AND COMPLETENESS PROPERTIES *)
-SoundnessUpToAFault == AppearsQuiescentUpToAFault \subseteq QuiescentUpToAFault
-Soundness == AppearsQuiescent \subseteq Quiescent
 
 (* Exiled actors may need to appear exiled in order for all quiescent garbage to be
    detected. *)
@@ -392,8 +390,7 @@ RecentEnough(a,b) ==
     IF a \in CrashedActors THEN a \in AppearsCrashed ELSE M!RecentEnough(a,b)
     
 SnapshotsInsufficient == 
-    CHOOSE S \in SUBSET Actors \ AppearsQuiescent : 
-    \A b \in Actors \ AppearsQuiescent:
+    CHOOSE S \in SUBSET Actors: \A b \in Actors:
     /\ ~SnapshotUpToDate(b) => b \in S
     /\ b \in NonFaultyActors /\ droppedMsgsTo(b) # {} => b \in S
         \* NEW: Actors must have been notified about dropped references.
@@ -406,34 +403,20 @@ SnapshotsInsufficient ==
         \* must be up to date.
 SnapshotsSufficient == Actors \ SnapshotsInsufficient
 
-(* The next definition is identical to the one above, except it uses AppearsQuiescentUpToAFault
-   instead of AppearsQuiescent. *)
-SnapshotsInsufficientUpToAFault == 
-    CHOOSE S \in SUBSET Actors \ AppearsQuiescentUpToAFault : 
-    \A b \in Actors \ AppearsQuiescentUpToAFault:
-    /\ ~SnapshotUpToDate(b) => b \in S
-    /\ b \in NonFaultyActors /\ droppedMsgsTo(b) # {} => b \in S
-    /\ \A a \in Actors:
-        /\ a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S
-        /\ a \in S /\ a \in piacqs(b) => b \in S
-        /\ a \in S /\ a \in monitoredBy(b) => b \in S
-        /\ a \in S /\ a \in droppedPIAcqs(b) => b \in S
-SnapshotsSufficientUpToAFault == Actors \ SnapshotsInsufficientUpToAFault
-
 (* The specification states that a non-exiled actor appears quiescent if and only
    if it is actually quiescent and there are sufficient snapshots to diagnose 
    quiescence. *)
 Spec == 
-    Quiescent \intersect SnapshotsSufficient \intersect NonExiledActors = 
-    AppearsQuiescent \intersect NonExiledActors
+    /\ AppearsQuiescent \subseteq Quiescent
+    /\ Quiescent \subseteq AppearsQuiescent \union SnapshotsInsufficient \union ExiledActors
 
 (* For quiescence up-to-a-fault, the simple specification above is not sufficient.
    This is because an actor that is quiescent up-to-a-fault can become busy if
    it monitors a remote actor that became exiled. *)
 SpecUpToAFault == 
     (\A a \in AppearsQuiescentUpToAFault: \A b \in appearsMonitoredBy(a): b \notin ExiledActors) =>
-    QuiescentUpToAFault \intersect SnapshotsSufficientUpToAFault \intersect NonExiledActors = 
-    AppearsQuiescentUpToAFault \intersect NonExiledActors
+    /\ AppearsQuiescentUpToAFault \subseteq QuiescentUpToAFault
+    /\ QuiescentUpToAFault \subseteq AppearsQuiescentUpToAFault \union SnapshotsInsufficient \union ExiledActors
 
 -----------------------------------------------------------------------------
 (* TEST CASES: These invariants do not hold because garbage can be detected. *)
