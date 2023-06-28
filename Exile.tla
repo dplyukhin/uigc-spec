@@ -393,20 +393,24 @@ BeingExiled(a) ==
     \E N \in NonExiledNodes: 
     location[a] \in ShunnedBy(N) /\ location[a] \notin ExiledNodes
     
+    
 SnapshotsInsufficient == 
-    CHOOSE S \in SUBSET Actors: \A b \in Actors:
-    /\ ~SnapshotUpToDate(b) => b \in S
-    /\ b \in NonFaultyActors /\ droppedMsgsTo(b) # {} => b \in S
+    CHOOSE S \in SUBSET Actors: 
+    /\ \A N1, N2 \in ApparentlyNonExiledNodes: N1 \in ShunnedBy(N2) => 
+        Actors \subseteq S
+        \* NEW: Shunning creates garbage actors that might not be detected
+        \* until those nodes are apparently exiled.
+    /\ \A b \in Actors:
+        /\ ~SnapshotUpToDate(b) => b \in S
+        /\ b \in NonFaultyActors /\ droppedMsgsTo(b) # {} => b \in S
         \* NEW: Actors may need to be notified about dropped references.
-    /\ BeingExiled(b) => b \in S
-        \* NEW: Nodes may need to finish being exiled.
-    /\ \A a \in Actors:
-        /\ a \in pastIAcqs(b) /\ (~RecentEnough(a,b) \/ BeingExiled(a)) => b \in S
-        /\ a \in S /\ a \in piacqs(b) => b \in S
-        /\ a \in S /\ a \in monitoredBy(b) => b \in S
-        /\ a \in S /\ a \in droppedPIAcqs(b) => b \in S
-        \* NEW: Recipients of dropped messages containing references to b
-        \* may need to have sufficient snapshots.
+        /\ \A a \in Actors:
+            /\ a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S
+            /\ a \in S /\ a \in piacqs(b) => b \in S
+            /\ a \in S /\ a \in monitoredBy(b) => b \in S
+            /\ a \in S /\ a \in droppedPIAcqs(b) => b \in S
+            \* NEW: Recipients of dropped messages containing references to b
+            \* may need to have sufficient snapshots.
 SnapshotsSufficient == Actors \ SnapshotsInsufficient
 
 (* The specification states that a non-exiled actor appears quiescent if and only
