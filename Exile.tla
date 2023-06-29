@@ -237,7 +237,7 @@ Next ==
     \/ \E a \in Actors \ ExiledActors: Snapshot(a)
     \/ \E a \in BusyActors \ ExiledActors: Crash(a)
     \/ \E a \in BusyActors \ ExiledActors: \E b \in acqs(a): Monitor(a,b)
-    \/ \E a \in IdleActors \ ExiledActors: \E b \in FaultyActors \intersect M!monitoredBy(a): 
+    \/ \E a \in IdleActors \ ExiledActors: \E b \in FaultyActors \intersect monitoredBy(a): 
         Notify(a,b)
         \* UPDATE: Actors are notified when monitored actors are exiled.
     \/ \E a \in BusyActors \ ExiledActors: \E b \in monitoredBy(a): Unmonitor(a,b)

@@ -1,4 +1,4 @@
----- MODULE Exile ----
+---- MODULE FaultModel ----
 EXTENDS Integers, FiniteSets, Bags, TLC
 
 (* The model is parameterized by sets ranging over actor names and node identifiers: *)
@@ -47,14 +47,12 @@ ActorState == [
     monitored : SUBSET ActorName
 ]
 
-(* TypeOK is an invariant that holds in all reachable configurations. It
-   specifies the type of each component of the configuration, and asserts
-   that every actor has a location. *)
+(* TypeOK is an invariant that specifies the type of each component
+   in the configuration. *)
 TypeOK == 
   /\ actors \in [ActorName -> ActorState \cup {null}]
   /\ location \in [ActorName -> NodeID \cup {null}]
   /\ BagToSet(msgs) \subseteq Message
-  /\ \A a \in Actors: location[a] # null 
 
 (* The initial configuration consists of an actor `a' located on node
    `N'. The actor a busy root with one reference to itself. *)
@@ -77,11 +75,60 @@ InitialConfiguration(a, N) ==
 -----------------------------------------------------------------------------
 (* DEFINITIONS *)
 
+(* TLA+ mechanism for computing the largest subset of D that satisfies F. *)
+LargestSubset(D, F(_)) == D \ CHOOSE S \in SUBSET D: F(D \ S)
+
+(* TLA+ mechanism for deterministically picking a fresh actor name.
+   If ActorName is a finite set and all names have been exhausted, this operator
+   produces the empty set. *)
+FreshActorName == IF \E a \in ActorName : actors[a] = null 
+                  THEN {CHOOSE a \in ActorName : actors[a] = null}
+                  ELSE {}
+
+(* The domain over which the partial function S is defined. *)
+pdom(S) == { a \in DOMAIN S : S[a] # null }
+
+(* The following functions are shorthand for manipulating bags of messages: *)
+put(bag, x)        == bag (+) SetToBag({x})  \* Adds x to the bag.
+remove(bag, x)     == bag (-) SetToBag({x})  \* Removes x from the bag.
+replace(bag, x, y) == put(remove(bag, x), y) \* Replaces x with y in the bag.
+
+(* We define the following sets to range over created, busy, idle, crashed,
+   and root actors. *)
+Actors        == pdom(actors)
+BusyActors    == { a \in Actors : actors[a].status = "busy" }
+IdleActors    == { a \in Actors : actors[a].status = "idle" }
+CrashedActors == { a \in Actors : actors[a].status = "crashed" }
+Roots         == { a \in Actors : actors[a].isRoot }
+
 (* A message is admissible if it is not already admitted and the origin
    node is not shunned by the destination node. *)
 AdmissibleMsgs   == { m \in BagToSet(msgs) : 
     ~m.admitted /\ ~shunned[m.origin, location[m.target]] }
 AdmittedMsgs     == { m \in BagToSet(msgs) : m.admitted }
+
+(* The set of messages to an actor `a' is the set of messages `m' for which `a' is 
+   the target, and `m' has either been admitted or can be admitted. In-flight messages
+   from shunned nodes are excluded from this set. *)
+msgsTo(a) == { m \in BagToSet(msgs) : m.target = a /\ (m.admitted \/ m \in AdmissibleMsgs) }
+(* An actor's acquaintances are the set of actors for which it has references. *)
+acqs(a)   == { b \in ActorName : actors[a].active[b] > 0 }
+(* An actor's inverse acquaintances are the actors for which it is an acquaintance. *)
+iacqs(b)  == { a \in Actors : b \in acqs(a) }
+(* An actor's potential acquaintances are the actors for which it has a reference or
+   can possibly receive a reference due to an undelivered message. *)
+pacqs(a)  == { b \in ActorName : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
+(* An actor's potential inverse acquaintances are the actors for which it is a 
+   potential acquaintance. *)
+piacqs(b) == { a \in Actors : b \in pacqs(a) }
+
+admittedMsgsTo(a) == { m \in msgsTo(a) : m.admitted }
+monitoredBy(b)    == actors[b].monitored
+
+(* An actor is blocked if it is idle and has no deliverable messages. Otherwise, the
+   actor is unblocked. *)
+Blocked   == { a \in IdleActors : msgsTo(a) = {} }
+Unblocked == Actors \ Blocked
 
 (* The exiled nodes are the largest nontrivial faction where every non-exiled
    node has shunned every exiled node. Likewise, a faction of nodes G is 
@@ -92,7 +139,14 @@ ExiledNodes ==
         /\ G # NodeID
         /\ \A N1 \in G, N2 \in NodeID \ G: shunned[N1,N2]
     )
-ExiledActors              == { a \in Actors : location[a] \in ExiledNodes }
+NonExiledNodes  == NodeID \ ExiledNodes
+ExiledActors    == { a \in Actors : location[a] \in ExiledNodes }
+FaultyActors    == CrashedActors \union ExiledActors
+NonFaultyActors == Actors \ FaultyActors
+
+ShunnedBy(N2)    == { N1 \in NodeID : shunned[N1,N2] }
+ShunnableBy(N1)  == (NodeID \ {N1}) \ ShunnedBy(N1)
+NeitherShuns(N1) == { N2 \in NodeID : ~shunned[N1, N2] /\ ~shunned[N2, N1] }
 
 -----------------------------------------------------------------------------
 (* TRANSITIONS *)
@@ -132,16 +186,16 @@ Idle(a) ==
     \* Specifically, the new value `actors' is identical to the old value, 
     \* except that the status of actor `a' is set to "idle".
     /\ actors' = [actors EXCEPT ![a].status = "idle"]
-    /\ UNCHANGED <<msgs,locations,shunned>>
+    /\ UNCHANGED <<msgs,location,shunned>>
 
 (* A busy actor `a' can spawn a fresh actor `b' onto a non-shunned node. *)
 Spawn(a,b,N) == 
     /\ actors' = [actors EXCEPT 
         ![a].active[b] = 1, \* The parent obtains a reference to the child.
         ![b] = [ 
-            status: "busy",                                   \* The child is busy,
-            root: FALSE,                                      \* not a root,
-            active  = (b :> 1) @@ [c \in ActorName |-> null], \* and has a reference to itself.
+            status: "busy",                                 \* The child is busy,
+            root: FALSE,                                    \* not a root,
+            active: (b :> 1) @@ [c \in ActorName |-> null]  \* and has a reference to itself.
         ]]
     /\ location' = [location EXCEPT ![b] = N]
     /\ UNCHANGED <<msgs,shunned>>
@@ -228,7 +282,7 @@ Exile(G1, G2) ==
    location for the initial actor. *)
 Init == InitialConfiguration(
     CHOOSE a \in ActorName: TRUE, \* Choose an arbitrary name for the initial actor.
-    CHOOSE N \in NodeID: TRUE,    \* Choose an arbitrary location for the actor.
+    CHOOSE N \in NodeID: TRUE     \* Choose an arbitrary location for the actor.
 )
 
 (* Next defines the transition relation on configurations, defined as a TLA action,
@@ -242,7 +296,7 @@ Init == InitialConfiguration(
 Next ==
     \/ \E a \in BusyActors \ ExiledActors: Idle(a)
     \/ \E a \in BusyActors \ ExiledActors: \E b \in FreshActorName: 
-       \E N \in NeitherShuns(location[a]): Spawn(a,b,InitialActorState,N)
+       \E N \in NeitherShuns(location[a]): Spawn(a,b,N)
     \/ \E a \in BusyActors \ ExiledActors: \E b \in acqs(a): Deactivate(a,b)
     \/ \E a \in BusyActors \ ExiledActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
         Send(a,b,[origin |-> location[a], 
@@ -252,7 +306,7 @@ Next ==
     \/ \E a \in IdleActors \ ExiledActors: \E m \in admittedMsgsTo(a): Receive(a,m)
     \/ \E a \in BusyActors \ ExiledActors: Crash(a)
     \/ \E a \in BusyActors \ ExiledActors: \E b \in acqs(a): Monitor(a,b)
-    \/ \E a \in IdleActors \ ExiledActors: \E b \in FaultyActors \intersect M!monitoredBy(a): 
+    \/ \E a \in IdleActors \ ExiledActors: \E b \in FaultyActors \intersect monitoredBy(a): 
         Notify(a,b)
     \/ \E a \in BusyActors \ ExiledActors: \E b \in monitoredBy(a): Unmonitor(a,b)
     \/ \E a \in (BusyActors \ Roots) \ ExiledActors: Register(a)
@@ -280,7 +334,6 @@ isPotentiallyUnblockedUpToAFault(S) ==
         a \in piacqs(b) => b \in S
     /\ \A a \in S \union FaultyActors, b \in NonFaultyActors :
         a \in monitoredBy(b) => b \in S
-            \* NEW: An actor is not garbage if it monitors an exiled actor.
             
 (* An actor is potentially unblocked if it is potentially unblocked up-to-a-fault
    or it monitors any remote actor. This is because remote actors can always
