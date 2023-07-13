@@ -30,9 +30,9 @@ Message == [
 ActorState == M!ActorState
 
 IngressState == [
-    shunned   : BOOLEAN,
-    sendCount : [ActorName -> Nat],
-    sentRefs  : [ActorName \X ActorName -> Nat]
+    shunned      : BOOLEAN,
+    admittedMsgs : [ActorName -> Nat],
+    admittedRefs : [ActorName \X ActorName -> Nat]
 ]
 
 (* The following invariant specifies the type of every variable
@@ -54,8 +54,8 @@ InitialActorState == M!InitialActorState
 
 InitialIngressState == [
     shunned      |-> FALSE,
-    sendCount    |-> [a \in ActorName |-> 0],
-    sentRefs     |-> [a,b \in ActorName |-> 0]
+    admittedMsgs |-> [a \in ActorName |-> 0],
+    admittedRefs |-> [a,b \in ActorName |-> 0]
 ]
 
 InitialConfiguration(initialActor, node, actorState) == 
@@ -163,8 +163,8 @@ Admit(m) ==
         N2 == location[a] 
         B  == [ <<b,c>> \in {a} \X m.refs |-> 1 ]
     IN
-    /\ ingress' = [ingress EXCEPT ![N1,N2].sendCount[a] = @ + 1, 
-                                  ![N1,N2].sentRefs     = @ ++ B]
+    /\ ingress' = [ingress EXCEPT ![N1,N2].admittedMsgs[a] = @ + 1, 
+                                  ![N1,N2].admittedRefs    = @ ++ B]
     /\ msgs' = replace(msgs, m, [m EXCEPT !.admitted = TRUE])
     /\ UNCHANGED <<actors,snapshots,ingressSnapshots,location,droppedMsgs>>
 
@@ -177,8 +177,8 @@ Drop(m) ==
             N2 == location[a]
             B  == [ <<b,c>> \in {a} \X m.refs |-> 1 ]
         IN
-        ingress' = [ingress EXCEPT ![N1,N2].sendCount[a] = @ + 1, 
-                                   ![N1,N2].sentRefs     = @ ++ B]
+        ingress' = [ingress EXCEPT ![N1,N2].admittedMsgs[a] = @ + 1, 
+                                   ![N1,N2].admittedRefs    = @ ++ B]
        ELSE UNCHANGED <<ingress>>
     /\ msgs' = remove(msgs, m)
     /\ droppedMsgs' = put(droppedMsgs, [m EXCEPT !.admitted = TRUE])
@@ -306,7 +306,7 @@ QuiescentUpToAFaultImpliesIdle == QuiescentUpToAFault \subseteq (IdleActors \uni
 effectiveCreatedCount(a, b) == 
     sum([ c \in NonExiledSnapshots |-> snapshots[c].created[a, b]]) +
     sum([ N1 \in ApparentlyExiledNodes, N2 \in NodeID \ ApparentlyExiledNodes |-> 
-          ingressSnapshots[N1, N2].sentRefs[a, b] ])
+          ingressSnapshots[N1, N2].admittedRefs[a, b] ])
 
 (* Once an actor `a' is exiled, all its references are effectively deactivated. Thus the effective 
    deactivated count is equal to the effective created count. Note that any references sent to `a'
@@ -324,7 +324,7 @@ effectiveDeactivatedCount(a, b) ==
    Note that dropped messages to `b' are implicitly included in the sum. *)
 effectiveSendCount(b) == 
     sum([ a \in NonExiledSnapshots |-> snapshots[a].sendCount[b]]) +
-    sum([ N1 \in ApparentlyExiledNodes |-> ingressSnapshots[N1, location[b]].sendCount[b] ])
+    sum([ N1 \in ApparentlyExiledNodes |-> ingressSnapshots[N1, location[b]].admittedMsgs[b] ])
 
 (* All messages to `b' that were dropped are effectively received. Thus an actor's
    effective receive count is the sum of its actual receive count and the number of 
