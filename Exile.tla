@@ -333,17 +333,17 @@ effectiveSendCount(b) ==
 effectiveReceiveCount(b) == 
     IF b \in Snapshots THEN snapshots[b].recvCount ELSE 0
 
-(* Historical and apparent acquaintances now incorporate ingress snapshot information. 
-   Once an actor appears exiled, it is no longer considered a historical or potential inverse
+(* Hereto inverse acquaintances now incorporate ingress snapshot information. 
+   Once an actor appears exiled, it is no longer considered a hereto inverse
    acquaintance.  *)
-historicalIAcqs(c) == { b \in Actors : 
+heretoIAcqs(c) == { b \in Actors : 
     effectiveCreatedCount(b, c) > 0 }
 apparentIAcqs(c)   == { b \in Actors : 
     effectiveCreatedCount(b, c) > effectiveDeactivatedCount(b, c) }
 
 AppearsIdle      == { a \in NonExiledSnapshots : snapshots[a].status = "idle" }
 AppearsClosed    == { b \in NonExiledSnapshots : 
-    /\ historicalIAcqs(b)    \subseteq Snapshots \union ApparentlyExiledActors
+    /\ heretoIAcqs(b)        \subseteq Snapshots \union ApparentlyExiledActors
     /\ appearsMonitoredBy(b) \subseteq Snapshots \union ApparentlyExiledActors }
 AppearsBlocked   == { b \in NonExiledSnapshots \intersect AppearsIdle : 
     effectiveSendCount(b) = effectiveReceiveCount(b) }

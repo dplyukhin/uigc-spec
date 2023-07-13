@@ -145,11 +145,11 @@ countDeactivated(a, b) == IF a \in Snapshots THEN snapshots[a].deactivated[b] EL
 countSentTo(b)         == sum([ a \in Snapshots |-> snapshots[a].sendCount[b]])
 countReceived(b)       == IF b \in Snapshots THEN snapshots[b].recvCount ELSE 0
 
-historicalIAcqs(c) == { b \in ActorName : countCreated(b, c) > 0 }
+heretoIAcqs(c) == { b \in ActorName : countCreated(b, c) > 0 }
 apparentIAcqs(c)   == { b \in ActorName : countCreated(b, c) > countDeactivated(b, c) }
 
 AppearsIdle    == { a \in Snapshots : snapshots[a].status = "idle" }
-AppearsClosed  == { b \in Snapshots : historicalIAcqs(b) \subseteq Snapshots }
+AppearsClosed  == { b \in Snapshots : heretoIAcqs(b) \subseteq Snapshots }
 AppearsBlocked == { b \in AppearsIdle \cap AppearsClosed : countSentTo(b) = countReceived(b) }
 AppearsUnblocked == Snapshots \ AppearsBlocked
 
