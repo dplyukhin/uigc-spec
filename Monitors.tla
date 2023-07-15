@@ -1,5 +1,5 @@
 ---- MODULE Monitors ----
-(* This model extends the Dynamic model with roots and monitoring.  *)
+(* This model extends the Dynamic model with sticky actors and monitoring.  *)
 EXTENDS Common, Integers, FiniteSets, Bags, TLC
 
 (* Operators from the Dynamic model are imported within the `D' namespace. *)
@@ -13,7 +13,7 @@ ActorState == [
     deactivated : [ActorName -> Nat],
     created     : [ActorName \X ActorName -> Nat],
     monitored   : SUBSET ActorName, \* NEW: The set of actors monitored by this one.
-    isRoot      : BOOLEAN           \* NEW: Indicates whether this actor is a root.
+    isSticky    : BOOLEAN           \* NEW: Indicates whether this actor is a sticky actor.
 ]
 
 TypeOK == 
@@ -24,11 +24,11 @@ TypeOK ==
 InitialActorState ==
     D!InitialActorState @@ [
         monitored |-> {},
-        isRoot |-> FALSE
+        isSticky |-> FALSE
     ]
 
 InitialConfiguration(actor, actorState) ==   
-    D!InitialConfiguration(actor, [actorState EXCEPT !.isRoot = TRUE])
+    D!InitialConfiguration(actor, [actorState EXCEPT !.isSticky = TRUE])
 
 -----------------------------------------------------------------------------
 (* DEFINITIONS *)
@@ -49,8 +49,8 @@ Blocked       == D!Blocked
 Unblocked     == D!Unblocked
 HaltedActors  == { a \in Actors    : actors[a].status = "halted" }
 AppearsHalted == { a \in Snapshots : snapshots[a].status = "halted" }
-Roots         == { a \in Actors    : actors[a].isRoot }
-AppearsRoot   == { a \in Snapshots : snapshots[a].isRoot }
+StickyActors  == { a \in Actors    : actors[a].isSticky }
+AppearsSticky == { a \in Snapshots : snapshots[a].isSticky }
 
 -----------------------------------------------------------------------------
 (* TRANSITIONS *)
@@ -80,7 +80,7 @@ Unmonitor(a,b) ==
     /\ UNCHANGED <<msgs,snapshots>>
 
 Register(a) ==
-    /\ actors' = [actors EXCEPT ![a].isRoot = TRUE]
+    /\ actors' = [actors EXCEPT ![a].isSticky = TRUE]
     /\ UNCHANGED <<msgs,snapshots>>
 
 Wakeup(a) ==
@@ -88,7 +88,7 @@ Wakeup(a) ==
     /\ UNCHANGED <<msgs,snapshots>>
 
 Unregister(a) ==
-    /\ actors' = [actors EXCEPT ![a].isRoot = FALSE]
+    /\ actors' = [actors EXCEPT ![a].isSticky = FALSE]
     /\ UNCHANGED <<msgs,snapshots>>
 
 Init == 
@@ -107,21 +107,21 @@ Next ==
     \/ \E a \in BusyActors: \E b \in acqs(a): Monitor(a,b)
     \/ \E a \in IdleActors: \E b \in HaltedActors \intersect monitoredBy(a): Notify(a,b)
     \/ \E a \in BusyActors: \E b \in monitoredBy(a): Unmonitor(a,b)
-    \/ \E a \in BusyActors \ Roots: Register(a)
-    \/ \E a \in IdleActors \intersect Roots : Wakeup(a)
-    \/ \E a \in BusyActors \intersect Roots : Unregister(a)
+    \/ \E a \in BusyActors \ StickyActors: Register(a)
+    \/ \E a \in IdleActors \intersect StickyActors : Wakeup(a)
+    \/ \E a \in BusyActors \intersect StickyActors : Unregister(a)
 
 
 -----------------------------------------------------------------------------
 
 (*
-Non-halted roots and unblocked actors are not garbage.
+Non-halted sticky actors and unblocked actors are not garbage.
 Non-halted actors that are potentially reachable by non-garbage are not garbage.
 Non-halted actors that monitor actors that can halt or have halted are not garbage.
  *)
 PotentiallyUnblocked ==
     CHOOSE S \in SUBSET Actors :
-    /\ (Roots \union Unblocked) \ HaltedActors \subseteq S
+    /\ (StickyActors \union Unblocked) \ HaltedActors \subseteq S
     /\ \A a \in Actors, b \in Actors \ HaltedActors :
         /\ (a \in S \intersect piacqs(b) => b \in S)
         /\ (a \in (S \union HaltedActors) \intersect monitoredBy(b) => b \in S)
@@ -141,7 +141,7 @@ have not taken a snapshot, then A should be marked as potentially unblocked for 
 AppearsPotentiallyUnblocked == 
     CHOOSE S \in SUBSET Snapshots :
     /\ Snapshots \ (AppearsClosed \union AppearsHalted) \subseteq S
-    /\ (AppearsRoot \union AppearsUnblocked) \ AppearsHalted \subseteq S
+    /\ (AppearsSticky \union AppearsUnblocked) \ AppearsHalted \subseteq S
     /\ \A a \in Snapshots, b \in Snapshots \ AppearsHalted :
         /\ (a \in S \intersect apparentIAcqs(b) => b \in S)
         /\ (a \in (S \union AppearsHalted) \intersect appearsMonitoredBy(b) => b \in S)

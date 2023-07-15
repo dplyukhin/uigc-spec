@@ -97,8 +97,8 @@ Blocked       == { a \in IdleActors : msgsTo(a) = {} }
 Unblocked     == Actors \ Blocked
 HaltedActors  == M!HaltedActors
 AppearsHalted == M!AppearsHalted
-Roots         == M!Roots
-AppearsRoot   == M!AppearsRoot
+StickyActors  == M!StickyActors
+AppearsSticky == M!AppearsSticky
 
 ShunnedBy(N2)    == { N1 \in NodeID : ingress[N1,N2].shunned }
 ShunnableBy(N1)  == (NodeID \ {N1}) \ ShunnedBy(N1)
@@ -241,9 +241,9 @@ Next ==
         Notify(a,b)
         \* UPDATE: Actors are notified when monitored actors are exiled.
     \/ \E a \in BusyActors \ ExiledActors: \E b \in monitoredBy(a): Unmonitor(a,b)
-    \/ \E a \in (BusyActors \ Roots) \ ExiledActors: Register(a)
-    \/ \E a \in (IdleActors \intersect Roots) \ ExiledActors: Wakeup(a)
-    \/ \E a \in (BusyActors \intersect Roots) \ ExiledActors: Unregister(a)
+    \/ \E a \in (BusyActors \ StickyActors) \ ExiledActors: Register(a)
+    \/ \E a \in (IdleActors \intersect StickyActors) \ ExiledActors: Wakeup(a)
+    \/ \E a \in (BusyActors \intersect StickyActors) \ ExiledActors: Unregister(a)
     \/ \E m \in AdmissibleMsgs: location[m.target] \notin ExiledNodes /\ Admit(m) \* NEW
     \/ \E m \in AdmissibleMsgs \union AdmittedMsgs: location[m.target] \notin ExiledNodes /\ Drop(m)  \* NEW
     \/ \E a \in IdleActors \ ExiledActors: \E m \in droppedMsgsTo(a): 
@@ -266,7 +266,7 @@ Next ==
    or it can become busy in a non-faulty extension of this execution. *)
 
 isPotentiallyUnblockedUpToAFault(S) ==
-    /\ Roots \ FaultyActors \subseteq S
+    /\ StickyActors \ FaultyActors \subseteq S
     /\ Unblocked \ FaultyActors \subseteq S 
     /\ \A a \in S, b \in NonFaultyActors : 
         a \in piacqs(b) => b \in S
@@ -351,7 +351,7 @@ AppearsUnblocked == NonExiledSnapshots \ AppearsBlocked
 
 appearsPotentiallyUnblockedUpToAFault(S) == 
     /\ Snapshots \ (AppearsClosed \union AppearsFaulty) \subseteq S
-    /\ AppearsRoot \ AppearsFaulty \subseteq S 
+    /\ AppearsSticky \ AppearsFaulty \subseteq S 
         \* NEW: Exiled actors still appear potentially unblocked.
     /\ AppearsUnblocked \ AppearsFaulty \subseteq S
     /\ \A a \in S, b \in Snapshots \ AppearsFaulty :

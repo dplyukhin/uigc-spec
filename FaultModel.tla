@@ -40,7 +40,7 @@ INITIALIZATION AND BASIC INVARIANTS
 (* 
 ActorState is a record that models the state of an actor:
    - status indicates whether the actor is busy, idle, or halted.
-   - isRoot indicates whether the actor is a root, i.e. able to spontaneously
+   - isSticky indicates whether the actor is sticky, i.e. able to spontaneously
      change state from "idle" to "busy".
    - active is a map representing the number of references this actor
      has to every other actor.
@@ -48,7 +48,7 @@ ActorState is a record that models the state of an actor:
 *)
 ActorState == [ 
     status    : {"busy", "idle", "halted"},
-    isRoot    : BOOLEAN,
+    isSticky  : BOOLEAN,
     active    : [ActorName -> Nat],
     monitored : SUBSET ActorName
 ]
@@ -74,7 +74,7 @@ TypeOK ==
 
 (* 
 The initial configuration consists of an actor `a' located on node
-N. The actor is a busy root with one reference to itself. 
+N. The actor is a busy sticky actor with one reference to itself. 
 
 The expression `(a :> 1) @@ [b \in ActorName |-> 0]' defines a function
 which maps each `b' to 0 except for `a', which is mapped to 1.
@@ -82,7 +82,7 @@ which maps each `b' to 0 except for `a', which is mapped to 1.
 InitialConfiguration(a, N) == 
     LET state == [
         status: "busy", 
-        isRoot: TRUE,
+        isSticky: TRUE,
         active: (a :> 1) @@ [b \in ActorName |-> 0]
     ] 
     IN
@@ -119,12 +119,12 @@ replace(bag, x, y) == put(remove(bag, x), y) \* Replaces x with y in the bag.
 
 (* 
 We define the following sets to range over created, busy, idle, halted,
-and root actors. *)
+and sticky actors. *)
 Actors       == pdom(actors)
 BusyActors   == { a \in Actors : actors[a].status = "busy" }
 IdleActors   == { a \in Actors : actors[a].status = "idle" }
 HaltedActors == { a \in Actors : actors[a].status = "halted" }
-Roots        == { a \in Actors : actors[a].isRoot }
+StickyActors == { a \in Actors : actors[a].isSticky }
 
 (* 
 A message is admissible if it is not already admitted and the origin
@@ -223,8 +223,9 @@ Spawn(a,b,N) ==
         ![a].active[b] = 1, \* The parent obtains a reference to the child.
         ![b] = [ 
             status: "busy",                                 \* The child is busy,
-            root: FALSE,                                    \* not a root,
-            active: (b :> 1) @@ [c \in ActorName |-> null]  \* and has a reference to itself.
+            isSticky: FALSE,                                \* not sticky,
+            active: (b :> 1) @@ [c \in ActorName |-> null], \* has a reference to itself,
+            monitored: {}                                   \* and monitors nobody.
         ]]
     /\ location' = [location EXCEPT ![b] = N]
     /\ UNCHANGED <<msgs,shunned>>
@@ -266,18 +267,18 @@ Unmonitor(a,b) ==
     /\ UNCHANGED <<location,msgs,shunned>>
 
 Register(a) ==
-    (* Actors can register as roots to spontaneously be awoken from "idle" state. *)
-    /\ actors' = [actors EXCEPT ![a].isRoot = TRUE]
+    (* Actors can register as sticky to spontaneously be awoken from "idle" state. *)
+    /\ actors' = [actors EXCEPT ![a].isSticky = TRUE]
     /\ UNCHANGED <<location,msgs,shunned>>
 
 Wakeup(a) ==
-    (* A root actor can be awoken. *)
+    (* A sticky actor can be awoken. *)
     /\ actors' = [actors EXCEPT ![a].status = "busy"]
     /\ UNCHANGED <<location,msgs,shunned>>
 
 Unregister(a) ==
-    (* Actors can unregister as roots. *)
-    /\ actors' = [actors EXCEPT ![a].isRoot = FALSE]
+    (* Actors can unregister as sticky. *)
+    /\ actors' = [actors EXCEPT ![a].isSticky = FALSE]
     /\ UNCHANGED <<location,msgs,shunned>>
 
 Admit(m) ==
@@ -340,9 +341,9 @@ Next ==
     \/ \E a \in IdleActors \ ExiledActors: \E b \in FaultyActors \intersect monitoredBy(a): 
         Notify(a,b)
     \/ \E a \in BusyActors \ ExiledActors: \E b \in monitoredBy(a): Unmonitor(a,b)
-    \/ \E a \in (BusyActors \ Roots) \ ExiledActors: Register(a)
-    \/ \E a \in (IdleActors \intersect Roots) \ ExiledActors: Wakeup(a)
-    \/ \E a \in (BusyActors \intersect Roots) \ ExiledActors: Unregister(a)
+    \/ \E a \in (BusyActors \ StickyActors) \ ExiledActors: Register(a)
+    \/ \E a \in (IdleActors \intersect StickyActors) \ ExiledActors: Wakeup(a)
+    \/ \E a \in (BusyActors \intersect StickyActors) \ ExiledActors: Unregister(a)
     \/ \E m \in AdmissibleMsgs: location[m.target] \notin ExiledNodes /\ Admit(m)
     \/ \E m \in AdmissibleMsgs \union AdmittedMsgs: location[m.target] \notin ExiledNodes /\ Drop(m)
     \/ \E N2 \in NonExiledNodes: \E N1 \in ShunnableBy(N2): Shun(N1,N2)
@@ -360,7 +361,7 @@ Similarly, an actor is potentially unblocked up-to-a-fault if it is busy
 or it can become busy in a non-faulty extension of this execution. *)
 
 isPotentiallyUnblockedUpToAFault(S) ==
-    /\ Roots \ FaultyActors \subseteq S
+    /\ StickyActors \ FaultyActors \subseteq S
     /\ Unblocked \ FaultyActors \subseteq S 
     /\ \A a \in S, b \in NonFaultyActors : 
         a \in piacqs(b) => b \in S
