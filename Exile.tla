@@ -144,7 +144,7 @@ Deactivate(a,b) == M!Deactivate(a,b) /\ UNCHANGED <<location,ingress,ingressSnap
 Send(a,b,m)     == M!Send(a,b,m)     /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Receive(a,m)    == M!Receive(a,m)    /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Snapshot(a)     == M!Snapshot(a)     /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
-Halt(a)         == M!Halt(a)        /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
+Halt(a)         == M!Halt(a)         /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Monitor(a,b)    == M!Monitor(a,b)    /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Unmonitor(a,b)  == M!Unmonitor(a,b)  /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Notify(a,b)     == M!Notify(a,b)     /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
@@ -232,7 +232,7 @@ Next ==
     \/ \E a \in BusyActors \ ExiledActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
         Send(a,b,[origin |-> location[a], admitted |-> location[b] = location[a], 
                   target |-> b, refs |-> refs])
-        \* UPDATE: Messages are tagged with node locations and cannot be sent to faulty actors.
+        \* UPDATE: Messages are tagged with node locations.
     \/ \E a \in IdleActors \ ExiledActors: \E m \in admittedMsgsTo(a): Receive(a,m)
     \/ \E a \in Actors \ ExiledActors: Snapshot(a)
     \/ \E a \in BusyActors \ ExiledActors: Halt(a)
