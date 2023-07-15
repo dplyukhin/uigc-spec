@@ -39,7 +39,7 @@ INITIALIZATION AND BASIC INVARIANTS
 
 (* 
 ActorState is a record that models the state of an actor:
-   - status indicates whether the actor is busy, idle, or crashed.
+   - status indicates whether the actor is busy, idle, or halted.
    - isRoot indicates whether the actor is a root, i.e. able to spontaneously
      change state from "idle" to "busy".
    - active is a map representing the number of references this actor
@@ -47,7 +47,7 @@ ActorState is a record that models the state of an actor:
    - monitored is the set of actors monitored by this actor.
 *)
 ActorState == [ 
-    status    : {"busy", "idle", "crashed"},
+    status    : {"busy", "idle", "halted"},
     isRoot    : BOOLEAN,
     active    : [ActorName -> Nat],
     monitored : SUBSET ActorName
@@ -118,13 +118,13 @@ remove(bag, x)     == bag (-) SetToBag({x})  \* Removes x from the bag.
 replace(bag, x, y) == put(remove(bag, x), y) \* Replaces x with y in the bag.
 
 (* 
-We define the following sets to range over created, busy, idle, crashed,
+We define the following sets to range over created, busy, idle, halted,
 and root actors. *)
-Actors        == pdom(actors)
-BusyActors    == { a \in Actors : actors[a].status = "busy" }
-IdleActors    == { a \in Actors : actors[a].status = "idle" }
-CrashedActors == { a \in Actors : actors[a].status = "crashed" }
-Roots         == { a \in Actors : actors[a].isRoot }
+Actors       == pdom(actors)
+BusyActors   == { a \in Actors : actors[a].status = "busy" }
+IdleActors   == { a \in Actors : actors[a].status = "idle" }
+HaltedActors == { a \in Actors : actors[a].status = "halted" }
+Roots        == { a \in Actors : actors[a].isRoot }
 
 (* 
 A message is admissible if it is not already admitted and the origin
@@ -177,7 +177,7 @@ ExiledNodes ==
     )
 NonExiledNodes  == NodeID \ ExiledNodes
 ExiledActors    == { a \in Actors : location[a] \in ExiledNodes }
-FaultyActors    == CrashedActors \union ExiledActors
+FaultyActors    == HaltedActors \union ExiledActors
 NonFaultyActors == Actors \ FaultyActors
 
 ShunnedBy(N2)    == { N1 \in NodeID : shunned[N1,N2] }
@@ -245,9 +245,9 @@ Receive(a,m) ==
     /\ msgs' = remove(msgs, m) \* Remove `m' from the msgs bag.
     /\ UNCHANGED <<location,shunned>>
 
-Crash(a) ==
-    (* Busy actors can crash. *)
-    /\ actors' = [actors EXCEPT ![a].status = "crashed"]
+Halt(a) ==
+    (* Busy actors can halt. *)
+    /\ actors' = [actors EXCEPT ![a].status = "halted"]
     /\ UNCHANGED <<location,msgs,shunned>>
 
 Monitor(a,b) ==
@@ -335,7 +335,7 @@ Next ==
                   target |-> b, 
                   refs |-> refs])
     \/ \E a \in IdleActors \ ExiledActors: \E m \in admittedMsgsTo(a): Receive(a,m)
-    \/ \E a \in BusyActors \ ExiledActors: Crash(a)
+    \/ \E a \in BusyActors \ ExiledActors: Halt(a)
     \/ \E a \in BusyActors \ ExiledActors: \E b \in acqs(a): Monitor(a,b)
     \/ \E a \in IdleActors \ ExiledActors: \E b \in FaultyActors \intersect monitoredBy(a): 
         Notify(a,b)
@@ -355,7 +355,7 @@ Next ==
 
 (* 
 An actor is potentially unblocked if it is busy or can become busy. 
-(Crashed and exiled actors automatically fail this definition.)
+(Halted and exiled actors automatically fail this definition.)
 Similarly, an actor is potentially unblocked up-to-a-fault if it is busy
 or it can become busy in a non-faulty extension of this execution. *)
 

@@ -36,8 +36,6 @@ InitialActorState == [
     acqs        |-> {}
 ]
         
-(* In the initial configuration, there is one busy actor with a reference
-   to itself. *)
 InitialConfiguration(actor, actorState) ==   
     LET state == [ actorState EXCEPT 
                    !.acqs  = {actor}

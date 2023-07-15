@@ -146,7 +146,7 @@ countSentTo(b)         == sum([ a \in Snapshots |-> snapshots[a].sendCount[b]])
 countReceived(b)       == IF b \in Snapshots THEN snapshots[b].recvCount ELSE 0
 
 heretoIAcqs(c) == { b \in ActorName : countCreated(b, c) > 0 }
-apparentIAcqs(c)   == { b \in ActorName : countCreated(b, c) > countDeactivated(b, c) }
+apparentIAcqs(c) == { b \in ActorName : countCreated(b, c) > countDeactivated(b, c) }
 
 AppearsIdle    == { a \in Snapshots : snapshots[a].status = "idle" }
 AppearsClosed  == { b \in Snapshots : heretoIAcqs(b) \subseteq Snapshots }

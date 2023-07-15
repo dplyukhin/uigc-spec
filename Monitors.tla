@@ -6,7 +6,7 @@ EXTENDS Common, Integers, FiniteSets, Bags, TLC
 D == INSTANCE Dynamic
 
 ActorState == [
-    status      : {"busy", "idle", "crashed"}, \* NEW: Actors may become "crashed".
+    status      : {"busy", "idle", "halted"}, \* NEW: Actors may become "halted".
     recvCount   : Nat,
     sendCount   : [ActorName -> Nat],
     active      : [ActorName -> Nat],
@@ -43,14 +43,14 @@ pastIAcqs(b)          == D!pastIAcqs(b)
 monitoredBy(b)        == actors[b].monitored
 appearsMonitoredBy(a) == snapshots[a].monitored
 
-BusyActors     == D!BusyActors
-IdleActors     == D!IdleActors
-Blocked        == D!Blocked
-Unblocked      == D!Unblocked
-CrashedActors  == { a \in Actors    : actors[a].status = "crashed" }
-AppearsCrashed == { a \in Snapshots : snapshots[a].status = "crashed" }
-Roots          == { a \in Actors    : actors[a].isRoot }
-AppearsRoot    == { a \in Snapshots : snapshots[a].isRoot }
+BusyActors    == D!BusyActors
+IdleActors    == D!IdleActors
+Blocked       == D!Blocked
+Unblocked     == D!Unblocked
+HaltedActors  == { a \in Actors    : actors[a].status = "halted" }
+AppearsHalted == { a \in Snapshots : snapshots[a].status = "halted" }
+Roots         == { a \in Actors    : actors[a].isRoot }
+AppearsRoot   == { a \in Snapshots : snapshots[a].isRoot }
 
 -----------------------------------------------------------------------------
 (* TRANSITIONS *)
@@ -62,8 +62,8 @@ Receive(a,m)     == D!Receive(a,m)
 Snapshot(a)      == D!Snapshot(a)
 Spawn(a,b,state) == D!Spawn(a,b,state)
 
-Crash(a) ==
-    /\ actors' = [actors EXCEPT ![a].status = "crashed"]      \* Mark the actor as crashed.
+Halt(a) ==
+    /\ actors' = [actors EXCEPT ![a].status = "halted"]      \* Mark the actor as halted.
     /\ UNCHANGED <<msgs,snapshots>>
 
 Monitor(a,b) ==
@@ -101,11 +101,11 @@ Next ==
     \/ \E a \in BusyActors: \E b \in acqs(a): \E refs \in SUBSET acqs(a): 
         Send(a,b,[target |-> b, refs |-> refs])
     \/ \E a \in IdleActors: \E m \in msgsTo(a): Receive(a,m)
-    \/ \E a \in IdleActors \union BusyActors \union CrashedActors : Snapshot(a)
-        \* NEW: Crashed actors can now take snapshots.
-    \/ \E a \in BusyActors: Crash(a)
+    \/ \E a \in IdleActors \union BusyActors \union HaltedActors : Snapshot(a)
+        \* NEW: Halted actors can now take snapshots.
+    \/ \E a \in BusyActors: Halt(a)
     \/ \E a \in BusyActors: \E b \in acqs(a): Monitor(a,b)
-    \/ \E a \in IdleActors: \E b \in CrashedActors \intersect monitoredBy(a): Notify(a,b)
+    \/ \E a \in IdleActors: \E b \in HaltedActors \intersect monitoredBy(a): Notify(a,b)
     \/ \E a \in BusyActors: \E b \in monitoredBy(a): Unmonitor(a,b)
     \/ \E a \in BusyActors \ Roots: Register(a)
     \/ \E a \in IdleActors \intersect Roots : Wakeup(a)
@@ -115,16 +115,16 @@ Next ==
 -----------------------------------------------------------------------------
 
 (*
-Non-crashed roots and unblocked actors are not garbage.
-Non-crashed actors that are potentially reachable by non-garbage are not garbage.
-Non-crashed actors that monitor actors that can crash or have crashed are not garbage.
+Non-halted roots and unblocked actors are not garbage.
+Non-halted actors that are potentially reachable by non-garbage are not garbage.
+Non-halted actors that monitor actors that can halt or have halted are not garbage.
  *)
 PotentiallyUnblocked ==
     CHOOSE S \in SUBSET Actors :
-    /\ (Roots \union Unblocked) \ CrashedActors \subseteq S
-    /\ \A a \in Actors, b \in Actors \ CrashedActors :
+    /\ (Roots \union Unblocked) \ HaltedActors \subseteq S
+    /\ \A a \in Actors, b \in Actors \ HaltedActors :
         /\ (a \in S \intersect piacqs(b) => b \in S)
-        /\ (a \in (S \union CrashedActors) \intersect monitoredBy(b) => b \in S)
+        /\ (a \in (S \union HaltedActors) \intersect monitoredBy(b) => b \in S)
 
 Quiescent == Actors \ PotentiallyUnblocked
 
@@ -140,11 +140,11 @@ have not taken a snapshot, then A should be marked as potentially unblocked for 
  *)
 AppearsPotentiallyUnblocked == 
     CHOOSE S \in SUBSET Snapshots :
-    /\ Snapshots \ (AppearsClosed \union AppearsCrashed) \subseteq S
-    /\ (AppearsRoot \union AppearsUnblocked) \ AppearsCrashed \subseteq S
-    /\ \A a \in Snapshots, b \in Snapshots \ AppearsCrashed :
+    /\ Snapshots \ (AppearsClosed \union AppearsHalted) \subseteq S
+    /\ (AppearsRoot \union AppearsUnblocked) \ AppearsHalted \subseteq S
+    /\ \A a \in Snapshots, b \in Snapshots \ AppearsHalted :
         /\ (a \in S \intersect apparentIAcqs(b) => b \in S)
-        /\ (a \in (S \union AppearsCrashed) \intersect appearsMonitoredBy(b) => b \in S)
+        /\ (a \in (S \union AppearsHalted) \intersect appearsMonitoredBy(b) => b \in S)
 
 AppearsQuiescent == Snapshots \ AppearsPotentiallyUnblocked
 
@@ -156,7 +156,7 @@ RecentEnough(a,b) == D!RecentEnough(a,b)
 SnapshotsInsufficient == 
     CHOOSE S \in SUBSET Actors : \A a \in Actors :
     /\ (~SnapshotUpToDate(a) => a \in S)
-    /\ \A b \in Actors \ CrashedActors :
+    /\ \A b \in Actors \ HaltedActors :
         /\ (a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S)
         /\ (a \in S /\ a \in piacqs(b) => b \in S)
         /\ (a \in S /\ a \in monitoredBy(b) => b \in S) \* NEW
@@ -175,14 +175,14 @@ GarbageExists == ~(Quiescent = {})
    is possible to obtain a sufficient set of snapshots. *)
 GarbageIsDetected == ~(AppearsQuiescent = {})
 
-(* This invariant fails, showing that quiescent actors can have crashed inverse
+(* This invariant fails, showing that quiescent actors can have halted inverse
    acquaintances. *)
-CrashedGarbageIsDetected ==
-  ~(\E a,b \in Actors: a # b /\ a \in CrashedActors /\ b \in AppearsQuiescent /\ 
+HaltedGarbageIsDetected ==
+  ~(\E a,b \in Actors: a # b /\ a \in HaltedActors /\ b \in AppearsQuiescent /\ 
     a \in iacqs(b))
 
 (* The previous soundness property no longer holds because actors can now become
-   busy by receiving signals from crashed actors or messages from external actors. *)
+   busy by receiving signals from halted actors or messages from external actors. *)
 OldSoundness == D!AppearsQuiescent \subseteq Quiescent
 
 (* The previous completeness property no longer holds because snapshots from

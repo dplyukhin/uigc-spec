@@ -91,14 +91,14 @@ appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
 admittedMsgsTo(a) == { m \in msgsTo(a) : m.admitted }
 
 (* Below, an actor can be blocked if all messages to it are inadmissible. *)
-BusyActors     == M!BusyActors
-IdleActors     == M!IdleActors
-Blocked        == { a \in IdleActors : msgsTo(a) = {} }
-Unblocked      == Actors \ Blocked
-CrashedActors  == M!CrashedActors
-AppearsCrashed == M!AppearsCrashed
-Roots          == M!Roots
-AppearsRoot    == M!AppearsRoot
+BusyActors    == M!BusyActors
+IdleActors    == M!IdleActors
+Blocked       == { a \in IdleActors : msgsTo(a) = {} }
+Unblocked     == Actors \ Blocked
+HaltedActors  == M!HaltedActors
+AppearsHalted == M!AppearsHalted
+Roots         == M!Roots
+AppearsRoot   == M!AppearsRoot
 
 ShunnedBy(N2)    == { N1 \in NodeID : ingress[N1,N2].shunned }
 ShunnableBy(N1)  == (NodeID \ {N1}) \ ShunnedBy(N1)
@@ -122,13 +122,13 @@ ApparentlyExiledNodes ==
 NonExiledNodes            == NodeID \ ExiledNodes
 ExiledActors              == { a \in Actors : location[a] \in ExiledNodes }
 NonExiledActors           == Actors \ ExiledActors
-FaultyActors              == CrashedActors \union ExiledActors
+FaultyActors              == HaltedActors \union ExiledActors
 NonFaultyActors           == Actors \ FaultyActors
 
 ApparentlyNonExiledNodes  == NodeID \ ApparentlyExiledNodes
 ApparentlyExiledActors    == { a \in Actors : location[a] \in ApparentlyExiledNodes }
 ApparentlyNonExiledActors == Actors \ ApparentlyExiledActors
-AppearsFaulty             == M!AppearsCrashed \union ApparentlyExiledActors
+AppearsFaulty             == M!AppearsHalted \union ApparentlyExiledActors
 AppearsNonFaulty          == Actors \ AppearsFaulty
 
 NonExiledSnapshots        == Snapshots \ ApparentlyExiledActors
@@ -144,7 +144,7 @@ Deactivate(a,b) == M!Deactivate(a,b) /\ UNCHANGED <<location,ingress,ingressSnap
 Send(a,b,m)     == M!Send(a,b,m)     /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Receive(a,m)    == M!Receive(a,m)    /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Snapshot(a)     == M!Snapshot(a)     /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
-Crash(a)        == M!Crash(a)        /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
+Halt(a)         == M!Halt(a)        /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Monitor(a,b)    == M!Monitor(a,b)    /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Unmonitor(a,b)  == M!Unmonitor(a,b)  /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
 Notify(a,b)     == M!Notify(a,b)     /\ UNCHANGED <<location,ingress,ingressSnapshots,droppedMsgs>>
@@ -235,7 +235,7 @@ Next ==
         \* UPDATE: Messages are tagged with node locations and cannot be sent to faulty actors.
     \/ \E a \in IdleActors \ ExiledActors: \E m \in admittedMsgsTo(a): Receive(a,m)
     \/ \E a \in Actors \ ExiledActors: Snapshot(a)
-    \/ \E a \in BusyActors \ ExiledActors: Crash(a)
+    \/ \E a \in BusyActors \ ExiledActors: Halt(a)
     \/ \E a \in BusyActors \ ExiledActors: \E b \in acqs(a): Monitor(a,b)
     \/ \E a \in IdleActors \ ExiledActors: \E b \in FaultyActors \intersect monitoredBy(a): 
         Notify(a,b)
@@ -261,7 +261,7 @@ Next ==
 (* ACTUAL GARBAGE *)
 
 (* An actor is potentially unblocked if it is busy or can become busy. 
-   (Crashed and exiled actors automatically fail this definition.)
+   (Halted and exiled actors automatically fail this definition.)
    Similarly, an actor is potentially unblocked up-to-a-fault if it is busy
    or it can become busy in a non-faulty extension of this execution. *)
 
@@ -385,10 +385,10 @@ AppearsQuiescent ==
    detected. *)
 SnapshotUpToDate(a) == 
     IF a \in ExiledActors THEN a \in ApparentlyExiledActors ELSE 
-    IF a \in CrashedActors THEN a \in AppearsCrashed ELSE M!SnapshotUpToDate(a)
+    IF a \in HaltedActors THEN a \in AppearsHalted ELSE M!SnapshotUpToDate(a)
 RecentEnough(a,b) == 
     IF a \in ExiledActors THEN a \in ApparentlyExiledActors ELSE 
-    IF a \in CrashedActors THEN a \in AppearsCrashed ELSE M!RecentEnough(a,b)
+    IF a \in HaltedActors THEN a \in AppearsHalted ELSE M!RecentEnough(a,b)
 BeingExiled(a) == 
     \E N \in NonExiledNodes: 
     location[a] \in ShunnedBy(N) /\ location[a] \notin ExiledNodes
@@ -446,13 +446,13 @@ NonFaultyGarbageUpToAFaultExists == QuiescentUpToAFault \intersect NonFaultyActo
 (* This invariant fails, showing that quiescence can be detected and that it
    is possible to obtain a sufficient set of snapshots. *)
 GarbageIsDetected == AppearsQuiescent = {}
-NonFaultyGarbageIsDetected == AppearsQuiescent \ AppearsCrashed = {}
+NonFaultyGarbageIsDetected == AppearsQuiescent \ AppearsHalted = {}
 GarbageIsDetectedUpToAFault == AppearsQuiescentUpToAFault = {}
-NonFaultyGarbageIsDetectedUpToAFault == AppearsQuiescentUpToAFault \ AppearsCrashed = {}
+NonFaultyGarbageIsDetectedUpToAFault == AppearsQuiescentUpToAFault \ AppearsHalted = {}
 
 DistinctGarbageUpToAFault == AppearsQuiescentUpToAFault = AppearsQuiescent
 
-(* This invariant fails, showing that quiescent actors can have crashed inverse
+(* This invariant fails, showing that quiescent actors can have halted inverse
    acquaintances. *)
 ExiledGarbageIsDetected == 
   ~(\E a,b \in Actors: a # b /\ a \in ExiledActors /\ b \in AppearsQuiescent /\ 
