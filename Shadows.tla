@@ -4,6 +4,8 @@ EXTENDS Common, Integers, FiniteSets, Bags, TLC
 CONSTANT NodeID
 VARIABLE location, ingress, ingressSnapshots, droppedMsgs
 
+D == INSTANCE Dynamic
+M == INSTANCE Monitors
 E == INSTANCE Exile
 
 (* A Shadow is a node in the shadow graph. Each Shadow in the graph
@@ -28,55 +30,60 @@ Shadow == [
     status        : {"idle", "busy", "halted"},
     undelivered   : Int,
     references    : [ActorName -> Nat],
-    monitored     : SUBSET ActorName,
+    monitored     : SUBSET ActorName
 ]
 
 (* Shadow graphs are represented here as an indexed collection of shadows. *)
 ShadowGraph == [ActorName -> Shadow \union {null}]
 
-apparentUndeliveredCount(S,b) ==
-    sum([b \in pdom(S) |-> S[b].sendCount[a]]) - 
-    IF a \in pdom(S) THEN S[a].recvCount ELSE 0
+apparentUndeliveredCount(b) == D!countSentTo(b) - D!countReceived(b)
 
-apparentReferenceCount(S,a,b) ==
-    sum([c \in pdom(S) |-> S[b].created[a,b]]) -
-    IF a \in pdom(S) THEN S[a].deactivated[b] ELSE 0
-
-apparentWatchers(S,a) ==
-    { b \in pdom(S) : a \in S[b].monitored }
+apparentReferenceCount(a,b) == D!countCreated(a,b) - D!countDeactivated(a,b)
 
 (* This is the shadow graph representation of the collage stored in `snapshots'. *)
-shadowGraph == 
+shadows == 
     [ a \in ActorName |-> 
+        (* TODO Some actors are not in the graph... *)
         [
             interned      |-> a \in Snapshots,
-            sticky        |-> IF a \in Snapshots THEN S[a].sticky ELSE FALSE,
-            status        |-> IF a \in Snapshots THEN S[a].status ELSE "idle",
-            undelivered   |-> apparentUndeliveredCount(S, a),
-            references    |-> [b \in ActorName |-> apparentReferenceCount(S, a, b)],
-            watchers      |-> apparentWatchers(S, a)
+            sticky        |-> IF a \in Snapshots THEN snapshots[a].sticky ELSE FALSE,
+            status        |-> IF a \in Snapshots THEN snapshots[a].status ELSE "idle",
+            undelivered   |-> apparentUndeliveredCount(a),
+            references    |-> [b \in ActorName |-> apparentReferenceCount(a, b)],
+            monitored     |-> M!appearsMonitoredBy(a)
         ]
     ]
 
-PseudoRoots(G) ==
-    { a \in pdom(G) : 
-        ~S[a].interned \/ S[a].sticky \/ S[a].busy \/ S[a].undelivered # 0 }
-
-apparentAcquaintances(G,a) ==
-    { b \in pdom(G) : S[a].references > 0 }
+PseudoRoots ==
+    { a \in pdom(shadows) : LET s == shadows[a] IN
+        ~s.interned \/ s.sticky \/ s.busy \/ s.undelivered # 0 }
         
-appearsFaulty(G) == 
-    { a \in pdom(G) : G[a].status = "halted" }
+AppearsFaulty == 
+    { a \in pdom(shadows) : shadows[a].status = "halted" }
+
+apparentAcquaintances(a) ==
+    { b \in pdom(shadows) : shadows[a].references > 0 }
         
 (* In the shadow graph G, an actor appears potentially unblocked iff 
    1. A potentially unblocked actor appears acquainted with it;
    2. A potentially unblocked actor is monitored by it; or
    3. An apparently faulty actor is monitored by it.  *)
-appearsLive(G) == 
-    CHOOSE S \in SUBSET pdom(G) \ appearsFaulty(G) :
-    /\ PseudoRoots(G) \subseteq S
-    /\ \A a \in S, b \in apparentAcquaintances(G,a) => b \in S
-    /\ \A a \in S \union appearsFaulty(G), b \in G[a].watchers => b \in S
+AppearsPotentiallyUnblocked == 
+    CHOOSE S \in SUBSET pdom(shadows) \ AppearsFaulty :
+    /\ PseudoRoots \subseteq S
+    /\ \A a \in S: apparentAcquaintances(a) \subseteq S
+    /\ \A a \in S \union AppearsFaulty: shadows[a].monitored \subseteq S
+
+AppearsQuiescent == 
+    pdom(shadows) \ AppearsPotentiallyUnblocked
+
+
+-----------------------------------------------------------------------------
+(* MODEL *)
+
+Init == E!Init
+Next == E!Next
+TypeOK == shadows \in ShadowGraph
 
 
 -----------------------------------------------------------------------------
