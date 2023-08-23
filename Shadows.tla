@@ -78,6 +78,49 @@ AppearsQuiescent ==
     pdom(shadows) \ AppearsPotentiallyUnblocked
 
 
+
+(* An undo log for node N indicates how to recover from the exile of node N.  
+   - `undeliveredMsgs[a]' indicates the number of messages that h
+*)
+UndoLog == [
+    node : NodeID,
+    undeliveredMsgs : [ActorName -> Nat],
+    undeliveredRefs : [ActorName \X ActorName -> Nat]
+]
+
+snapshotsFrom(N) == { a \in Snapshots : location[a] = N }
+
+(* The number of messages sent to actor `b' by actors on node N, according to
+   the collage. *)
+appearsSentBy(N,b) == sum([ a \in snapshotsFrom(N) |-> snapshots[a].sendCount[b]])
+
+(* The number of references owned by `a' pointing to `b' created by node N,
+   according to the collage. *)
+appearsCreatedBy(N,a,b) == sum([ c \in snapshotsFrom(N) |-> snapshots[c].created[a, b]])
+
+(* The number of messages sent to `b' originating from N1 that have been 
+   admitted to their destination, according to the ingress actors' snapshots. *)
+appearsAdmittedFrom(N1,b) == 
+    sum([ N2 \in NodeID |-> ingressSnapshots[N1,N2].admittedMsgs[b] ])
+
+(* The number of references owned by `a' pointing to `b' created by N1 that 
+   have been admitted to their destination, according to the ingress actors' 
+   snapshots. *)
+appearsAdmittedRefsFrom(N1,b,c) == 
+    sum([ N2 \in NodeID |-> ingressSnapshots[N1,N2].admittedRefs[b,c] ])
+
+(* The undo log for node N. It is only defined when N appears exiled. *)
+undo(N) == [
+    node |-> N,
+    undeliveredMsgs |-> 
+        [b \in ActorName |-> 
+            appearsSentBy(N,b) - appearsAdmittedFrom(N,b)],
+    undeliveredRefs |-> 
+        [<<b,c>> \in ActorName \X ActorName |-> 
+            appearsCreatedBy(N,b,c) - appearsAdmittedRefsFrom(N,b,c)]
+]
+
+
 -----------------------------------------------------------------------------
 (* MODEL *)
 
