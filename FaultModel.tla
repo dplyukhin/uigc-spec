@@ -135,7 +135,7 @@ AdmissibleMsgs == { m \in BagToSet(msgs) :
 AdmittedMsgs   == { m \in BagToSet(msgs) : m.admitted }
 
 (* 
-msgsTo(a) is the set of messages to an actor `a' is the set of messages `m' for which `a' is 
+deliverableTo(a) is the set of messages to an actor `a' is the set of messages `m' for which `a' is 
 the target, and `m' has either been admitted or can be admitted. In-flight messages
 from shunned nodes are excluded from this set. 
 
@@ -149,20 +149,20 @@ can possibly receive a reference due to an undelivered message.
 An actor's potential inverse acquaintances piacqs(a) are the actors for which it is a 
 potential acquaintance.
 *)
-msgsTo(a) == { m \in BagToSet(msgs) : /\ m.target = a 
-                                      /\ (m.admitted \/ m \in AdmissibleMsgs) }
+deliverableTo(a) == { m \in BagToSet(msgs) : /\ m.target = a 
+                                             /\ (m.admitted \/ m \in AdmissibleMsgs) }
 acqs(a)   == { b \in ActorName : actors[a].active[b] > 0 }
 iacqs(b)  == { a \in Actors : b \in acqs(a) }
-pacqs(a)  == { b \in ActorName : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
+pacqs(a)  == { b \in ActorName : b \in acqs(a) \/ \E m \in deliverableTo(a) : b \in m.refs }
 piacqs(b) == { a \in Actors : b \in pacqs(a) }
 
-admittedMsgsTo(a) == { m \in msgsTo(a) : m.admitted }
+admittedMsgsTo(a) == { m \in deliverableTo(a) : m.admitted }
 monitoredBy(b)    == actors[b].monitored
 
 (* 
 An actor is blocked if it is idle and has no deliverable messages. Otherwise, the
 actor is unblocked. *)
-Blocked   == { a \in IdleActors : msgsTo(a) = {} }
+Blocked   == { a \in IdleActors : deliverableTo(a) = {} }
 Unblocked == Actors \ Blocked
 
 (* 
@@ -177,8 +177,8 @@ ExiledNodes ==
     )
 NonExiledNodes  == NodeID \ ExiledNodes
 ExiledActors    == { a \in Actors : location[a] \in ExiledNodes }
-FaultyActors    == HaltedActors \union ExiledActors
-NonFaultyActors == Actors \ FaultyActors
+FailedActors    == HaltedActors \union ExiledActors
+HealthyActors   == Actors \ FailedActors
 
 ShunnedBy(N2)    == { N1 \in NodeID : shunned[N1,N2] }
 ShunnableBy(N1)  == (NodeID \ {N1}) \ ShunnedBy(N1)
@@ -338,7 +338,7 @@ Next ==
     \/ \E a \in IdleActors \ ExiledActors: \E m \in admittedMsgsTo(a): Receive(a,m)
     \/ \E a \in BusyActors \ ExiledActors: Halt(a)
     \/ \E a \in BusyActors \ ExiledActors: \E b \in acqs(a): Monitor(a,b)
-    \/ \E a \in IdleActors \ ExiledActors: \E b \in FaultyActors \intersect monitoredBy(a): 
+    \/ \E a \in IdleActors \ ExiledActors: \E b \in FailedActors \intersect monitoredBy(a): 
         Notify(a,b)
     \/ \E a \in BusyActors \ ExiledActors: \E b \in monitoredBy(a): Unmonitor(a,b)
     \/ \E a \in (BusyActors \ StickyActors) \ ExiledActors: Register(a)
@@ -361,11 +361,11 @@ Similarly, an actor is potentially unblocked up-to-a-fault if it is busy
 or it can become busy in a non-faulty extension of this execution. *)
 
 isPotentiallyUnblockedUpToAFault(S) ==
-    /\ StickyActors \ FaultyActors \subseteq S
-    /\ Unblocked \ FaultyActors \subseteq S 
-    /\ \A a \in S, b \in NonFaultyActors : 
+    /\ StickyActors \ FailedActors \subseteq S
+    /\ Unblocked \ FailedActors \subseteq S 
+    /\ \A a \in S, b \in HealthyActors : 
         a \in piacqs(b) => b \in S
-    /\ \A a \in S \union FaultyActors, b \in NonFaultyActors :
+    /\ \A a \in S \union FailedActors, b \in HealthyActors :
         a \in monitoredBy(b) => b \in S
             
 (* 
@@ -374,25 +374,25 @@ or it monitors any remote actor. This is because remote actors can always
 become exiled, causing the monitoring actor to be notified. *)
 isPotentiallyUnblocked(S) ==
     /\ isPotentiallyUnblockedUpToAFault(S)
-    /\ \A a \in Actors, b \in NonFaultyActors :
+    /\ \A a \in Actors, b \in HealthyActors :
         /\ (a \in monitoredBy(b) /\ location[a] # location[b] => b \in S)
 
 (* 
 An actor is quiescent if it is not potentially unblocked. Likewise for 
 quiescence up-to-a-fault. *)
 PotentiallyUnblockedUpToAFault == 
-    CHOOSE S \in SUBSET NonFaultyActors : isPotentiallyUnblockedUpToAFault(S)
+    CHOOSE S \in SUBSET HealthyActors : isPotentiallyUnblockedUpToAFault(S)
 QuiescentUpToAFault == Actors \ PotentiallyUnblockedUpToAFault
 
 PotentiallyUnblocked == 
-    CHOOSE S \in SUBSET NonFaultyActors : isPotentiallyUnblocked(S)
+    CHOOSE S \in SUBSET HealthyActors : isPotentiallyUnblocked(S)
 Quiescent == Actors \ PotentiallyUnblocked
 
 (* 
 Both definitions characterize a subset of the idle actors. The difference between the
 definitions is that quiescence up-to-a-fault is only a stable property in non-faulty
 executions. *)
-QuiescentImpliesIdle == Quiescent \subseteq (IdleActors \union FaultyActors)
-QuiescentUpToAFaultImpliesIdle == QuiescentUpToAFault \subseteq (IdleActors \union FaultyActors)
+QuiescentImpliesIdle == Quiescent \subseteq (IdleActors \union FailedActors)
+QuiescentUpToAFaultImpliesIdle == QuiescentUpToAFault \subseteq (IdleActors \union FailedActors)
 
 ====

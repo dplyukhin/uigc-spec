@@ -75,25 +75,25 @@ AdmissibleMsgs   == { m \in BagToSet(msgs) :
 AdmittedMsgs     == { m \in BagToSet(msgs) : m.admitted }
 
 (* Because inadmissible messages can never be delivered, we
-   update the definition of `msgsTo' to exclude them. This causes several
+   update the definition of `deliverableTo' to exclude them. This causes several
    other definitions below to change in subtle ways. For example, an actor
    `a' is potentially acquainted with `b' if all there is an inadmissible
    message to `a' containing a reference to `b'. *)
-msgsTo(a)      == { m \in M!msgsTo(a) : m.admitted \/ m \in AdmissibleMsgs }
-acqs(a)        == M!acqs(a)
-iacqs(b)       == M!iacqs(b)
-pacqs(a)       == { b \in ActorName : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
-piacqs(b)      == { a \in Actors : b \in pacqs(a) }
-pastAcqs(a)    == M!pastAcqs(a)
-pastIAcqs(b)   == M!pastIAcqs(b)
-monitoredBy(b) == M!monitoredBy(b)
+deliverableTo(a) == { m \in M!deliverableTo(a) : m.admitted \/ m \in AdmissibleMsgs }
+acqs(a)          == M!acqs(a)
+iacqs(b)         == M!iacqs(b)
+pacqs(a)         == { b \in ActorName : b \in acqs(a) \/ \E m \in deliverableTo(a) : b \in m.refs }
+piacqs(b)        == { a \in Actors : b \in pacqs(a) }
+pastAcqs(a)      == M!pastAcqs(a)
+pastIAcqs(b)     == M!pastIAcqs(b)
+monitoredBy(b)   == M!monitoredBy(b)
 appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
-admittedMsgsTo(a) == { m \in msgsTo(a) : m.admitted }
+admittedMsgsTo(a)     == { m \in deliverableTo(a) : m.admitted }
 
 (* Below, an actor can be blocked if all messages to it are inadmissible. *)
 BusyActors    == M!BusyActors
 IdleActors    == M!IdleActors
-Blocked       == { a \in IdleActors : msgsTo(a) = {} }
+Blocked       == { a \in IdleActors : deliverableTo(a) = {} }
 Unblocked     == Actors \ Blocked
 HaltedActors  == M!HaltedActors
 AppearsHalted == M!AppearsHalted
@@ -122,14 +122,14 @@ ApparentlyExiledNodes ==
 NonExiledNodes            == NodeID \ ExiledNodes
 ExiledActors              == { a \in Actors : location[a] \in ExiledNodes }
 NonExiledActors           == Actors \ ExiledActors
-FaultyActors              == HaltedActors \union ExiledActors
-NonFaultyActors           == Actors \ FaultyActors
+FailedActors              == HaltedActors \union ExiledActors
+HealthyActors             == Actors \ FailedActors
 
 ApparentlyNonExiledNodes  == NodeID \ ApparentlyExiledNodes
 ApparentlyExiledActors    == { a \in Actors : location[a] \in ApparentlyExiledNodes }
 ApparentlyNonExiledActors == Actors \ ApparentlyExiledActors
-AppearsFaulty             == M!AppearsHalted \union ApparentlyExiledActors
-AppearsNonFaulty          == Actors \ AppearsFaulty
+AppearsFailed             == M!AppearsHalted \union ApparentlyExiledActors
+AppearsHealthy            == Actors \ AppearsFailed
 
 NonExiledSnapshots        == Snapshots \ ApparentlyExiledActors
 
@@ -237,7 +237,7 @@ Next ==
     \/ \E a \in Actors \ ExiledActors: Snapshot(a)
     \/ \E a \in BusyActors \ ExiledActors: Halt(a)
     \/ \E a \in BusyActors \ ExiledActors: \E b \in acqs(a): Monitor(a,b)
-    \/ \E a \in IdleActors \ ExiledActors: \E b \in FaultyActors \intersect monitoredBy(a): 
+    \/ \E a \in IdleActors \ ExiledActors: \E b \in FailedActors \intersect monitoredBy(a): 
         Notify(a,b)
         \* UPDATE: Actors are notified when monitored actors are exiled.
     \/ \E a \in BusyActors \ ExiledActors: \E b \in monitoredBy(a): Unmonitor(a,b)
@@ -266,11 +266,11 @@ Next ==
    or it can become busy in a non-faulty extension of this execution. *)
 
 isPotentiallyUnblockedUpToAFault(S) ==
-    /\ StickyActors \ FaultyActors \subseteq S
-    /\ Unblocked \ FaultyActors \subseteq S 
-    /\ \A a \in S, b \in NonFaultyActors : 
+    /\ StickyActors \ FailedActors \subseteq S
+    /\ Unblocked \ FailedActors \subseteq S 
+    /\ \A a \in S, b \in HealthyActors : 
         a \in piacqs(b) => b \in S
-    /\ \A a \in S \union FaultyActors, b \in NonFaultyActors :
+    /\ \A a \in S \union FailedActors, b \in HealthyActors :
         a \in monitoredBy(b) => b \in S
             \* NEW: An actor is not garbage if it monitors an exiled actor.
             
@@ -279,24 +279,24 @@ isPotentiallyUnblockedUpToAFault(S) ==
    become exiled, causing the monitoring actor to be notified. *)
 isPotentiallyUnblocked(S) ==
     /\ isPotentiallyUnblockedUpToAFault(S)
-    /\ \A a \in Actors, b \in NonFaultyActors :
+    /\ \A a \in Actors, b \in HealthyActors :
         /\ (a \in monitoredBy(b) /\ location[a] # location[b] => b \in S)
 
 (* An actor is quiescent if it is not potentially unblocked. Likewise for 
    quiescence up-to-a-fault. *)
 PotentiallyUnblockedUpToAFault == 
-    CHOOSE S \in SUBSET NonFaultyActors : isPotentiallyUnblockedUpToAFault(S)
+    CHOOSE S \in SUBSET HealthyActors : isPotentiallyUnblockedUpToAFault(S)
 QuiescentUpToAFault == Actors \ PotentiallyUnblockedUpToAFault
 
 PotentiallyUnblocked == 
-    CHOOSE S \in SUBSET NonFaultyActors : isPotentiallyUnblocked(S)
+    CHOOSE S \in SUBSET HealthyActors : isPotentiallyUnblocked(S)
 Quiescent == Actors \ PotentiallyUnblocked
 
 (* Both definitions characterize a subset of the idle actors. The difference between the
    definitions is that quiescence up-to-a-fault is only a stable property in non-faulty
    executions. *)
-QuiescentImpliesIdle == Quiescent \subseteq (IdleActors \union FaultyActors)
-QuiescentUpToAFaultImpliesIdle == QuiescentUpToAFault \subseteq (IdleActors \union FaultyActors)
+QuiescentImpliesIdle == Quiescent \subseteq (IdleActors \union FailedActors)
+QuiescentUpToAFaultImpliesIdle == QuiescentUpToAFault \subseteq (IdleActors \union FailedActors)
 
 -----------------------------------------------------------------------------
 (* APPARENT GARBAGE *)
@@ -350,30 +350,30 @@ AppearsBlocked   == { b \in NonExiledSnapshots \intersect AppearsIdle :
 AppearsUnblocked == NonExiledSnapshots \ AppearsBlocked
 
 appearsPotentiallyUnblockedUpToAFault(S) == 
-    /\ Snapshots \ (AppearsClosed \union AppearsFaulty) \subseteq S
-    /\ AppearsSticky \ AppearsFaulty \subseteq S 
+    /\ Snapshots \ (AppearsClosed \union AppearsFailed) \subseteq S
+    /\ AppearsSticky \ AppearsFailed \subseteq S 
         \* NEW: Exiled actors still appear potentially unblocked.
-    /\ AppearsUnblocked \ AppearsFaulty \subseteq S
-    /\ \A a \in S, b \in Snapshots \ AppearsFaulty :
+    /\ AppearsUnblocked \ AppearsFailed \subseteq S
+    /\ \A a \in S, b \in Snapshots \ AppearsFailed :
         a \in apparentIAcqs(b) => b \in S
-    /\ \A a \in S \union AppearsFaulty, b \in Snapshots \ AppearsFaulty :
+    /\ \A a \in S \union AppearsFailed, b \in Snapshots \ AppearsFailed :
         a \in appearsMonitoredBy(b) => b \in S
             \* NEW: An actor is not garbage if it monitors an exiled actor.
 
 appearsPotentiallyUnblocked(S) == 
     /\ appearsPotentiallyUnblockedUpToAFault(S)
-    /\ \A a \in Actors, b \in Snapshots \ AppearsFaulty :
+    /\ \A a \in Actors, b \in Snapshots \ AppearsFailed :
         /\ (a \in appearsMonitoredBy(b) /\ location[a] # location[b] => b \in S)
             \* NEW: Actors that monitor remote actors are not garbage.
 
 AppearsPotentiallyUnblockedUpToAFault == 
-    CHOOSE S \in SUBSET Snapshots \ AppearsFaulty : 
+    CHOOSE S \in SUBSET Snapshots \ AppearsFailed : 
     appearsPotentiallyUnblockedUpToAFault(S)
 AppearsQuiescentUpToAFault == 
     Snapshots \ AppearsPotentiallyUnblockedUpToAFault
 
 AppearsPotentiallyUnblocked == 
-    CHOOSE S \in SUBSET Snapshots \ AppearsFaulty :
+    CHOOSE S \in SUBSET Snapshots \ AppearsFailed :
     appearsPotentiallyUnblocked(S)
 AppearsQuiescent == 
     Snapshots \ AppearsPotentiallyUnblocked
@@ -402,7 +402,7 @@ SnapshotsInsufficient ==
         \* until those nodes are apparently exiled.
     /\ \A b \in Actors:
         /\ ~SnapshotUpToDate(b) => b \in S
-        /\ b \in NonFaultyActors /\ droppedMsgsTo(b) # {} => b \in S
+        /\ b \in HealthyActors /\ droppedMsgsTo(b) # {} => b \in S
         \* NEW: Actors may need to be notified about dropped references.
         /\ \A a \in Actors:
             /\ a \in pastIAcqs(b) /\ ~RecentEnough(a,b) => b \in S
@@ -438,17 +438,17 @@ ActorsCanBeExiled == \A a \in Actors: a \notin ExiledActors
 
 (* This invariant fails, showing that the set of quiescent actors is nonempty. *)
 GarbageExists == Quiescent = {}
-NonFaultyGarbageExists == Quiescent \intersect NonFaultyActors = {}
+HealthyGarbageExists == Quiescent \intersect HealthyActors = {}
 
 GarbageUpToAFaultExists == QuiescentUpToAFault = {}
-NonFaultyGarbageUpToAFaultExists == QuiescentUpToAFault \intersect NonFaultyActors = {}
+HealthyGarbageUpToAFaultExists == QuiescentUpToAFault \intersect HealthyActors = {}
 
 (* This invariant fails, showing that quiescence can be detected and that it
    is possible to obtain a sufficient set of snapshots. *)
 GarbageIsDetected == AppearsQuiescent = {}
-NonFaultyGarbageIsDetected == AppearsQuiescent \ AppearsHalted = {}
+HealthyGarbageIsDetected == AppearsQuiescent \ AppearsHalted = {}
 GarbageIsDetectedUpToAFault == AppearsQuiescentUpToAFault = {}
-NonFaultyGarbageIsDetectedUpToAFault == AppearsQuiescentUpToAFault \ AppearsHalted = {}
+HealthyGarbageIsDetectedUpToAFault == AppearsQuiescentUpToAFault \ AppearsHalted = {}
 
 DistinctGarbageUpToAFault == AppearsQuiescentUpToAFault = AppearsQuiescent
 
