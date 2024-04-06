@@ -4,14 +4,14 @@ EXTENDS Common, Integers, FiniteSets, Bags, TLC
 (*
 ActorState represents the GC-relevant state of an actor.
 - status indicates whether the actor is currently processing a message.
-- recvCount is the number of messages that this actor has received.
-- sendCount[b] is the number of messages this actor has sent to b.
+- received is the number of messages that this actor has received.
+- sent[b] is the number of messages this actor has sent to b.
 - acqs is the set of actors that this actor is acquainted with.
 *)
 ActorState == [ 
     status      : {"busy", "idle"},
-    recvCount   : Nat,
-    sendCount   : [ActorName -> Nat],
+    received    : Nat,
+    sent        : [ActorName -> Nat],
     acqs        : SUBSET ActorName
 ]
 
@@ -31,8 +31,8 @@ TypeOK ==
 
 InitialActorState == [
     status      |-> "busy", 
-    sendCount   |-> [b \in ActorName |-> 0],
-    recvCount   |-> 0,
+    sent   |-> [b \in ActorName |-> 0],
+    received   |-> 0,
     acqs        |-> {}
 ]
         
@@ -65,12 +65,12 @@ Idle(a) ==
     /\ UNCHANGED <<msgs,snapshots>>
 
 Send(a,b,m) ==
-    /\ actors' = [actors EXCEPT ![a].sendCount[b] = @ + 1]
+    /\ actors' = [actors EXCEPT ![a].sent[b] = @ + 1]
     /\ msgs' = put(msgs, m)
     /\ UNCHANGED <<snapshots>>
 
 Receive(a,m) ==
-    /\ actors' = [actors EXCEPT ![a].recvCount = @ + 1, ![a].status = "busy"]
+    /\ actors' = [actors EXCEPT ![a].received = @ + 1, ![a].status = "busy"]
     /\ msgs' = remove(msgs, m)
     /\ UNCHANGED <<snapshots>>
 
@@ -97,8 +97,8 @@ PotentiallyUnblocked ==
 
 Quiescent == Actors \ PotentiallyUnblocked
 
-countSentTo(b)   == sum([ a \in Snapshots |-> snapshots[a].sendCount[b]])
-countReceived(b) == IF b \in Snapshots THEN snapshots[b].recvCount ELSE 0
+countSentTo(b)   == sum([ a \in Snapshots |-> snapshots[a].sent[b]])
+countReceived(b) == IF b \in Snapshots THEN snapshots[b].received ELSE 0
 
 AppearsIdle    == { a \in Snapshots : snapshots[a].status = "idle" }
 AppearsClosed  == { b \in Snapshots : iacqs(b) \subseteq Snapshots }

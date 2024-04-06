@@ -4,3 +4,4 @@ states
 *.pdf
 *.aux
 *.dvi
+*.toolbox

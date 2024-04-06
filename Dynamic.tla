@@ -4,16 +4,16 @@ EXTENDS Common, Integers, FiniteSets, Bags, TLC
 (*
 ActorState represents the GC-relevant state of an actor.
 - status indicates whether the actor is currently processing a message.
-- recvCount is the number of messages that this actor has received.
-- sendCount[b] is the number of messages this actor has sent to b.
+- received is the number of messages that this actor has received.
+- sent[b] is the number of messages this actor has sent to b.
 - active[b] is the number of active references to b in the state.
 - deactivated[b] is the number of references to b that have been deactivated.
 - created[b,c] is the number of references to c that have been sent to b.
 *)
 ActorState == [ 
     status      : {"busy", "idle"},
-    recvCount   : Nat,
-    sendCount   : [ActorName -> Nat],
+    received    : Nat,
+    sent        : [ActorName -> Nat],
     active      : [ActorName -> Nat],
     deactivated : [ActorName -> Nat],
     created     : [ActorName \X ActorName -> Nat]
@@ -36,8 +36,8 @@ TypeOK ==
 
 InitialActorState == [
     status      |-> "busy", 
-    sendCount   |-> [b \in ActorName |-> 0],
-    recvCount   |-> 0,
+    sent        |-> [b \in ActorName |-> 0],
+    received    |-> 0,
     active      |-> [b \in ActorName |-> 0],
     deactivated |-> [b \in ActorName |-> 0],
     created     |-> [b, c \in ActorName |-> 0]
@@ -98,7 +98,7 @@ Deactivate(a,b) ==
 
 Send(a,b,m) ==
     /\ actors' = [actors EXCEPT 
-        ![a].sendCount[b] = @ + 1,
+        ![a].sent[b] = @ + 1,
         ![a].created = @ ++ [ <<x, y>> \in {b} \X m.refs |-> 1 ]
         ]
     (* Add this message to the msgs bag. *)
@@ -108,7 +108,7 @@ Send(a,b,m) ==
 Receive(a,m) ==
     /\ actors' = [actors EXCEPT 
         ![a].active = @ ++ [c \in m.refs |-> 1],
-        ![a].recvCount = @ + 1, 
+        ![a].received = @ + 1, 
         ![a].status = "busy"]
     (* Remove m from the msgs bag. *)
     /\ msgs' = remove(msgs, m)
@@ -142,8 +142,8 @@ Quiescent == Actors \ PotentiallyUnblocked
 
 countCreated(a, b)     == sum([ c \in Snapshots |-> snapshots[c].created[a, b]])
 countDeactivated(a, b) == IF a \in Snapshots THEN snapshots[a].deactivated[b] ELSE 0
-countSentTo(b)         == sum([ a \in Snapshots |-> snapshots[a].sendCount[b]])
-countReceived(b)       == IF b \in Snapshots THEN snapshots[b].recvCount ELSE 0
+countSentTo(b)         == sum([ a \in Snapshots |-> snapshots[a].sent[b]])
+countReceived(b)       == IF b \in Snapshots THEN snapshots[b].received ELSE 0
 
 heretoIAcqs(c) == { b \in ActorName : countCreated(b, c) > 0 }
 apparentIAcqs(c) == { b \in ActorName : countCreated(b, c) > countDeactivated(b, c) }

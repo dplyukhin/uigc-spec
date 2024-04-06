@@ -7,8 +7,8 @@ D == INSTANCE Dynamic
 
 ActorState == [
     status      : {"busy", "idle", "halted"}, \* NEW: Actors may become "halted".
-    recvCount   : Nat,
-    sendCount   : [ActorName -> Nat],
+    received    : Nat,
+    sent        : [ActorName -> Nat],
     active      : [ActorName -> Nat],
     deactivated : [ActorName -> Nat],
     created     : [ActorName \X ActorName -> Nat],

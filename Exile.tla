@@ -75,25 +75,25 @@ AdmissibleMsgs   == { m \in BagToSet(msgs) :
 AdmittedMsgs     == { m \in BagToSet(msgs) : m.admitted }
 
 (* Because inadmissible messages can never be delivered, we
-   update the definition of `deliverableTo' to exclude them. This causes several
+   update the definition of `msgsTo' to exclude them. This causes several
    other definitions below to change in subtle ways. For example, an actor
    `a' is potentially acquainted with `b' if all there is an inadmissible
    message to `a' containing a reference to `b'. *)
-deliverableTo(a) == { m \in M!deliverableTo(a) : m.admitted \/ m \in AdmissibleMsgs }
+msgsTo(a)        == { m \in M!msgsTo(a) : m.admitted \/ m \in AdmissibleMsgs }
 acqs(a)          == M!acqs(a)
 iacqs(b)         == M!iacqs(b)
-pacqs(a)         == { b \in ActorName : b \in acqs(a) \/ \E m \in deliverableTo(a) : b \in m.refs }
+pacqs(a)         == { b \in ActorName : b \in acqs(a) \/ \E m \in msgsTo(a) : b \in m.refs }
 piacqs(b)        == { a \in Actors : b \in pacqs(a) }
 pastAcqs(a)      == M!pastAcqs(a)
 pastIAcqs(b)     == M!pastIAcqs(b)
 monitoredBy(b)   == M!monitoredBy(b)
 appearsMonitoredBy(b) == M!appearsMonitoredBy(b)
-admittedMsgsTo(a)     == { m \in deliverableTo(a) : m.admitted }
+admittedMsgsTo(a)     == { m \in msgsTo(a) : m.admitted }
 
 (* Below, an actor can be blocked if all messages to it are inadmissible. *)
 BusyActors    == M!BusyActors
 IdleActors    == M!IdleActors
-Blocked       == { a \in IdleActors : deliverableTo(a) = {} }
+Blocked       == { a \in IdleActors : msgsTo(a) = {} }
 Unblocked     == Actors \ Blocked
 HaltedActors  == M!HaltedActors
 AppearsHalted == M!AppearsHalted
@@ -188,7 +188,7 @@ Drop(m) ==
    state is updated. *)
 DetectDropped(a, m) ==
     /\ droppedMsgs' = remove(droppedMsgs, m)
-    /\ actors' = [actors EXCEPT ![a].recvCount = @ + 1, 
+    /\ actors' = [actors EXCEPT ![a].received = @ + 1, 
                                 ![a].deactivated = @ ++ [c \in m.refs |-> 1]]
     /\ UNCHANGED <<msgs,snapshots,ingress,ingressSnapshots,location>>
 
@@ -323,7 +323,7 @@ effectiveDeactivatedCount(a, b) ==
    and the number of messages for `b' that entered the ingress actor from apparently exiled nodes. 
    Note that dropped messages to `b' are implicitly included in the sum. *)
 effectiveSendCount(b) == 
-    sum([ a \in NonExiledSnapshots |-> snapshots[a].sendCount[b]]) +
+    sum([ a \in NonExiledSnapshots |-> snapshots[a].sent[b]]) +
     sum([ N1 \in ApparentlyExiledNodes |-> ingressSnapshots[N1, location[b]].admittedMsgs[b] ])
 
 (* All messages to `b' that were dropped are effectively received. Thus an actor's
@@ -331,7 +331,7 @@ effectiveSendCount(b) ==
    dropped messages sent to it. Note that dropped messages from exiled actors are
    also included in this count. *)
 effectiveReceiveCount(b) == 
-    IF b \in Snapshots THEN snapshots[b].recvCount ELSE 0
+    IF b \in Snapshots THEN snapshots[b].received ELSE 0
 
 (* Hereto inverse acquaintances now incorporate ingress snapshot information. 
    Once an actor appears exiled, it is no longer considered a hereto inverse
@@ -432,8 +432,8 @@ SpecUpToAFault ==
 (* TEST CASES: These invariants do not hold because garbage can be detected. *)
 
 ActorsCanBeSpawned == Cardinality(Actors) < 4
-MessagesCanBeReceived == \A a \in Actors: actors[a].recvCount = 0
-SelfMessagesCanBeReceived == \A a \in Actors: actors[a].recvCount = 0 \/ Cardinality(Actors) > 1
+MessagesCanBeReceived == \A a \in Actors: actors[a].received = 0
+SelfMessagesCanBeReceived == \A a \in Actors: actors[a].received = 0 \/ Cardinality(Actors) > 1
 ActorsCanBeExiled == \A a \in Actors: a \notin ExiledActors
 
 (* This invariant fails, showing that the set of quiescent actors is nonempty. *)

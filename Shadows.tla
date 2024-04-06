@@ -8,6 +8,9 @@ D == INSTANCE Dynamic
 M == INSTANCE Monitors
 E == INSTANCE Exile
 
+-----------------------------------------------------------------------------
+(* SHADOW GRAPHS *)
+
 (* A Shadow is a node in the shadow graph. Each Shadow in the graph
    corresponds to an actor that has taken a snapshot or is referenced 
    in another actor's snapshot. 
@@ -78,6 +81,8 @@ AppearsQuiescent ==
     pdom(shadows) \ AppearsPotentiallyUnblocked
 
 
+-----------------------------------------------------------------------------
+(* UNDO LOGS *)
 
 (* An undo log for node N indicates how to recover from the exile of node N.  
    - `undeliveredMsgs[a]' indicates the number of messages that h
@@ -92,7 +97,7 @@ snapshotsFrom(N) == { a \in Snapshots : location[a] = N }
 
 (* The number of messages sent to actor `b' by actors on node N, according to
    the collage. *)
-appearsSentBy(N,b) == sum([ a \in snapshotsFrom(N) |-> snapshots[a].sendCount[b]])
+appearsSentBy(N,b) == sum([ a \in snapshotsFrom(N) |-> snapshots[a].sent[b]])
 
 (* The number of references owned by `a' pointing to `b' created by node N,
    according to the collage. *)
