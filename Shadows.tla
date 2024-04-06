@@ -1,12 +1,8 @@
 ---- MODULE Shadows ----
 EXTENDS Common, Integers, FiniteSets, Bags, TLC
 
-CONSTANT NodeID
-VARIABLE location, ingress, ingressSnapshots, droppedMsgs
-
 D == INSTANCE Dynamic
 M == INSTANCE Monitors
-E == INSTANCE Exile
 
 -----------------------------------------------------------------------------
 (* SHADOW GRAPHS *)
@@ -16,131 +12,101 @@ E == INSTANCE Exile
    in another actor's snapshot. 
    
    - `interned' indicates whether this actor has taken a snapshot. If
-     `interned' is FALSE, the other fields are meaningless.
+     `interned' is FALSE, the values of `sticky` and `status` are 
+     meaningless.
    - `sticky' indicates whether the actor was sticky in its latest
      snapshot.
    - `status' indicates the status of the actor in its latest snapshot.
    - `undelivered' is the number of messages that appear sent but not
-     received in the collage.
+     received.
    - `references' is the number of references that appear created but
-     not deactivated in the collage.
-   - `monitored' is the set of actors monitored by this actor in its
-     latest snapshot.
+     not deactivated.
+   - `watchers' is the set of actors that appear to monitor this actor.
 *)
 Shadow == [
     interned      : BOOLEAN,
     sticky        : BOOLEAN,
     status        : {"idle", "busy", "halted"},
     undelivered   : Int,
-    references    : [ActorName -> Nat],
-    monitored     : SUBSET ActorName
+    references    : [ActorName -> Int],
+    watchers      : SUBSET ActorName
 ]
 
 (* Shadow graphs are represented here as an indexed collection of shadows. *)
 ShadowGraph == [ActorName -> Shadow \union {null}]
 
-apparentUndeliveredCount(b) == D!sent(b) - D!appearsReceived(b)
+undelivered(b) == D!sent(b) - D!received(b)
 
-apparentReferenceCount(a,b) == D!created(a,b) - D!deactivated(a,b)
+references(a,b) == D!created(a,b) - D!deactivated(a,b)
+
+watches(a,b) == a \in Snapshots /\ b \in snapshots[a].monitored
+
+(* This is the domain of the shadow graph. An actor is in the shadow graph if it occurs
+   in a snapshot. *)
+Shadows == 
+    { c \in ActorName : 
+        \/ c \in Snapshots
+        \/ \E a \in Snapshots : \E b \in ActorName : snapshots[a].created[b,c] > 0
+        \/ \E a \in Snapshots : \E b \in ActorName : snapshots[a].created[c,b] > 0
+        \/ \E a \in Snapshots : snapshots[a].deactivated[c] > 0
+        \/ \E a \in Snapshots : snapshots[a].sent[c] > 0
+        \/ \E a \in Snapshots : c \in snapshots[a].monitored
+    }
 
 (* This is the shadow graph representation of the collage stored in `snapshots'. *)
 shadows == 
-    [ a \in ActorName |-> 
-        (* TODO Some actors are not in the graph... *)
+    [ b \in Shadows |->
         [
-            interned      |-> a \in Snapshots,
-            sticky        |-> IF a \in Snapshots THEN snapshots[a].sticky ELSE FALSE,
-            status        |-> IF a \in Snapshots THEN snapshots[a].status ELSE "idle",
-            undelivered   |-> apparentUndeliveredCount(a),
-            references    |-> [b \in ActorName |-> apparentReferenceCount(a, b)],
-            monitored     |-> M!appearsMonitoredBy(a)
+            interned      |-> b \in Snapshots,
+            sticky        |-> IF b \in Snapshots THEN snapshots[b].isSticky ELSE FALSE,
+            status        |-> IF b \in Snapshots THEN snapshots[b].status ELSE "idle",
+            undelivered   |-> undelivered(b),
+            references    |-> [c \in ActorName |-> references(b, c)],
+            watchers      |-> { a \in ActorName : watches(a,b) }
         ]
     ]
-
-PseudoRoots ==
-    { a \in pdom(shadows) : LET s == shadows[a] IN
-        ~s.interned \/ s.sticky \/ s.busy \/ s.undelivered # 0 }
         
 AppearsFaulty == 
-    { a \in pdom(shadows) : shadows[a].status = "halted" }
+    { a \in Shadows : shadows[a].status = "halted" }
 
-apparentAcquaintances(a) ==
-    { b \in pdom(shadows) : shadows[a].references > 0 }
+PseudoRoots ==
+    { a \in Shadows \ AppearsFaulty : LET s == shadows[a] IN
+        ~s.interned \/ s.sticky \/ s.status = "busy" \/ s.undelivered # 0 }
+
+acquaintances(a) ==
+    { b \in Shadows : shadows[a].references[b] > 0 }
+        
+watchers(a) == { b \in Shadows : b \in shadows[a].watchers }
         
 (* In the shadow graph G, an actor appears potentially unblocked iff 
-   1. A potentially unblocked actor appears acquainted with it;
-   2. A potentially unblocked actor is monitored by it; or
-   3. An apparently faulty actor is monitored by it.  *)
+   0. It is a pseudo-root;
+   1. A potentially unblocked actor appears acquainted with it; or
+   2. A potentially unblocked actor is monitored by it.  *)
 AppearsPotentiallyUnblocked == 
-    CHOOSE S \in SUBSET pdom(shadows) \ AppearsFaulty :
+    CHOOSE S \in SUBSET Shadows \ AppearsFaulty :
     /\ PseudoRoots \subseteq S
-    /\ \A a \in S: apparentAcquaintances(a) \subseteq S
-    /\ \A a \in S \union AppearsFaulty: shadows[a].monitored \subseteq S
+    /\ \A a \in S: 
+        acquaintances(a) \ AppearsFaulty \subseteq S
+    /\ \A a \in S \union AppearsFaulty: 
+        watchers(a) \ AppearsFaulty \subseteq S
 
-AppearsQuiescent == 
-    pdom(shadows) \ AppearsPotentiallyUnblocked
-
-
------------------------------------------------------------------------------
-(* UNDO LOGS *)
-
-(* An undo log for node N indicates how to recover from the exile of node N.  
-   - `undeliveredMsgs[a]' indicates the number of messages that h
-*)
-UndoLog == [
-    node : NodeID,
-    undeliveredMsgs : [ActorName -> Nat],
-    undeliveredRefs : [ActorName \X ActorName -> Nat]
-]
-
-snapshotsFrom(N) == { a \in Snapshots : location[a] = N }
-
-(* The number of messages sent to actor `b' by actors on node N, according to
-   the collage. *)
-appearsSentBy(N,b) == sum([ a \in snapshotsFrom(N) |-> snapshots[a].sent[b]])
-
-(* The number of references owned by `a' pointing to `b' created by node N,
-   according to the collage. *)
-appearsCreatedBy(N,a,b) == sum([ c \in snapshotsFrom(N) |-> snapshots[c].created[a, b]])
-
-(* The number of messages sent to `b' originating from N1 that have been 
-   admitted to their destination, according to the ingress actors' snapshots. *)
-appearsAdmittedFrom(N1,b) == 
-    sum([ N2 \in NodeID |-> ingressSnapshots[N1,N2].admittedMsgs[b] ])
-
-(* The number of references owned by `a' pointing to `b' created by N1 that 
-   have been admitted to their destination, according to the ingress actors' 
-   snapshots. *)
-appearsAdmittedRefsFrom(N1,b,c) == 
-    sum([ N2 \in NodeID |-> ingressSnapshots[N1,N2].admittedRefs[b,c] ])
-
-(* The undo log for node N. It is only defined when N appears exiled. *)
-undo(N) == [
-    node |-> N,
-    undeliveredMsgs |-> 
-        [b \in ActorName |-> 
-            appearsSentBy(N,b) - appearsAdmittedFrom(N,b)],
-    undeliveredRefs |-> 
-        [<<b,c>> \in ActorName \X ActorName |-> 
-            appearsCreatedBy(N,b,c) - appearsAdmittedRefsFrom(N,b,c)]
-]
-
+AppearsQuiescent == Shadows \ AppearsPotentiallyUnblocked
 
 -----------------------------------------------------------------------------
 (* MODEL *)
 
-Init == E!Init
-Next == E!Next
-TypeOK == shadows \in ShadowGraph
+(* Alone, shadow graphs characterize the garbage in the Monitors model.
+   To find garbage in the Exile model, we need undo logs.
+ *)
 
-
------------------------------------------------------------------------------
-(* SOUNDNESS AND COMPLETENESS PROPERTIES *)
-
-
+Init == M!Init
+Next == M!Next
 
 -----------------------------------------------------------------------------
-(* TEST CASES: These invariants do not hold because garbage can be detected. *)
+(* PROPERTIES *)
 
+TypeOK == \A a \in Shadows: shadows[a] \in Shadow
+
+Spec == AppearsQuiescent = M!AppearsQuiescent
 
 ====
