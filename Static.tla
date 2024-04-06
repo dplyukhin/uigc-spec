@@ -97,12 +97,12 @@ PotentiallyUnblocked ==
 
 Quiescent == Actors \ PotentiallyUnblocked
 
-countSentTo(b)   == sum([ a \in Snapshots |-> snapshots[a].sent[b]])
-countReceived(b) == IF b \in Snapshots THEN snapshots[b].received ELSE 0
+sent(b)     == sum([ a \in Snapshots |-> snapshots[a].sent[b]])
+received(b) == IF b \in Snapshots THEN snapshots[b].received ELSE 0
 
 AppearsIdle    == { a \in Snapshots : snapshots[a].status = "idle" }
 AppearsClosed  == { b \in Snapshots : iacqs(b) \subseteq Snapshots }
-AppearsBlocked == { b \in AppearsIdle \cap AppearsClosed : countSentTo(b) = countReceived(b) }
+AppearsBlocked == { b \in AppearsIdle \cap AppearsClosed : sent(b) = received(b) }
 AppearsUnblocked == Snapshots \ AppearsBlocked
 
 AppearsPotentiallyUnblocked == 

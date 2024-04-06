@@ -140,17 +140,17 @@ PotentiallyUnblocked ==
 
 Quiescent == Actors \ PotentiallyUnblocked
 
-countCreated(a, b)     == sum([ c \in Snapshots |-> snapshots[c].created[a, b]])
-countDeactivated(a, b) == IF a \in Snapshots THEN snapshots[a].deactivated[b] ELSE 0
-countSentTo(b)         == sum([ a \in Snapshots |-> snapshots[a].sent[b]])
-countReceived(b)       == IF b \in Snapshots THEN snapshots[b].received ELSE 0
+created(a, b)     == sum([ c \in Snapshots |-> snapshots[c].created[a, b]])
+deactivated(a, b) == IF a \in Snapshots THEN snapshots[a].deactivated[b] ELSE 0
+sent(b)           == sum([ a \in Snapshots |-> snapshots[a].sent[b]])
+received(b)       == IF b \in Snapshots THEN snapshots[b].received ELSE 0
 
-heretoIAcqs(c) == { b \in ActorName : countCreated(b, c) > 0 }
-apparentIAcqs(c) == { b \in ActorName : countCreated(b, c) > countDeactivated(b, c) }
+heretoIAcqs(c)   == { b \in ActorName : created(b, c) > 0 }
+apparentIAcqs(c) == { b \in ActorName : created(b, c) > deactivated(b, c) }
 
-AppearsIdle    == { a \in Snapshots : snapshots[a].status = "idle" }
-AppearsClosed  == { b \in Snapshots : heretoIAcqs(b) \subseteq Snapshots }
-AppearsBlocked == { b \in AppearsIdle \cap AppearsClosed : countSentTo(b) = countReceived(b) }
+AppearsIdle      == { a \in Snapshots : snapshots[a].status = "idle" }
+AppearsClosed    == { b \in Snapshots : heretoIAcqs(b) \subseteq Snapshots }
+AppearsBlocked   == { b \in AppearsIdle \cap AppearsClosed : sent(b) = received(b) }
 AppearsUnblocked == Snapshots \ AppearsBlocked
 
 AppearsPotentiallyUnblocked == 

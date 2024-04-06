@@ -39,9 +39,9 @@ Shadow == [
 (* Shadow graphs are represented here as an indexed collection of shadows. *)
 ShadowGraph == [ActorName -> Shadow \union {null}]
 
-apparentUndeliveredCount(b) == D!countSentTo(b) - D!countReceived(b)
+apparentUndeliveredCount(b) == D!sent(b) - D!appearsReceived(b)
 
-apparentReferenceCount(a,b) == D!countCreated(a,b) - D!countDeactivated(a,b)
+apparentReferenceCount(a,b) == D!created(a,b) - D!deactivated(a,b)
 
 (* This is the shadow graph representation of the collage stored in `snapshots'. *)
 shadows == 
