@@ -303,7 +303,7 @@ QuiescentUpToAFaultImpliesIdle == QuiescentUpToAFault \subseteq (IdleActors \uni
 
 (* The effective created count is the sum of (a) the created counts recorded by non-exiled actors
    and (b) the created counts recorded by ingress actors for exiled nodes. *)
-effectiveCreatedCount(a, b) == 
+created(a, b) == 
     sum([ c \in NonExiledSnapshots |-> snapshots[c].created[a, b]]) +
     sum([ N1 \in ApparentlyExiledNodes, N2 \in NodeID \ ApparentlyExiledNodes |-> 
           ingressSnapshots[N1, N2].admittedRefs[a, b] ])
@@ -311,18 +311,18 @@ effectiveCreatedCount(a, b) ==
 (* Once an actor `a' is exiled, all its references are effectively deactivated. Thus the effective 
    deactivated count is equal to the effective created count. Note that any references sent to `a'
    that were dropped are implicitly included in this count. *)
-effectiveDeactivatedCount(a, b) == 
+deactivated(a, b) == 
     IF a \in ApparentlyExiledActors THEN 
-        effectiveCreatedCount(a, b) 
+        created(a, b) 
     ELSE 
         IF a \in Snapshots THEN snapshots[a].deactivated[b] ELSE 0
 
-(* Once an actor `a' is exiled, the number of messages that `a' effectively sent to some `b'
+(* Once an actor `a' is exiled, the number of messages that `a' sent effectively to some `b'
    is equal to the number of messages admitted by the ingress actor at `b''s node. Thus the
    effective total send count for `b' is the sum of the send counts from non-exiled actors
    and the number of messages for `b' that entered the ingress actor from apparently exiled nodes. 
    Note that dropped messages to `b' are implicitly included in the sum. *)
-effectiveSendCount(b) == 
+sent(b) == 
     sum([ a \in NonExiledSnapshots |-> snapshots[a].sent[b]]) +
     sum([ N1 \in ApparentlyExiledNodes |-> ingressSnapshots[N1, location[b]].admittedMsgs[b] ])
 
@@ -330,23 +330,19 @@ effectiveSendCount(b) ==
    effective receive count is the sum of its actual receive count and the number of 
    dropped messages sent to it. Note that dropped messages from exiled actors are
    also included in this count. *)
-effectiveReceiveCount(b) == 
-    IF b \in Snapshots THEN snapshots[b].received ELSE 0
+received(b) == IF b \in Snapshots THEN snapshots[b].received ELSE 0
 
 (* Hereto inverse acquaintances now incorporate ingress snapshot information. 
    Once an actor appears exiled, it is no longer considered a hereto inverse
    acquaintance.  *)
-heretoIAcqs(c) == { b \in Actors : 
-    effectiveCreatedCount(b, c) > 0 }
-apparentIAcqs(c)   == { b \in Actors : 
-    effectiveCreatedCount(b, c) > effectiveDeactivatedCount(b, c) }
+heretoIAcqs(c)   == { b \in Actors : created(b, c) > 0 }
+apparentIAcqs(c) == { b \in Actors : created(b, c) > deactivated(b, c) }
 
 AppearsIdle      == { a \in NonExiledSnapshots : snapshots[a].status = "idle" }
 AppearsClosed    == { b \in NonExiledSnapshots : 
     /\ heretoIAcqs(b)        \subseteq Snapshots \union ApparentlyExiledActors
     /\ appearsMonitoredBy(b) \subseteq Snapshots \union ApparentlyExiledActors }
-AppearsBlocked   == { b \in NonExiledSnapshots \intersect AppearsIdle : 
-    effectiveSendCount(b) = effectiveReceiveCount(b) }
+AppearsBlocked   == { b \in NonExiledSnapshots \intersect AppearsIdle : sent(b) = received(b) }
 AppearsUnblocked == NonExiledSnapshots \ AppearsBlocked
 
 appearsPotentiallyUnblockedUpToAFault(S) == 
