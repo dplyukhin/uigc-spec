@@ -71,7 +71,9 @@ AppearsFaulty(G) ==
 
 PseudoRoots(G) ==
     { a \in DOMAIN G \ AppearsFaulty(G) :
-        ~G[a].interned \/ G[a].sticky \/ G[a].status = "busy" \/ G[a].undelivered # 0 }
+        ~G[a].interned \/ G[a].sticky \/ G[a].status = "busy" \/ G[a].undelivered # 0 \/ 
+        \E b \in DOMAIN G: G[b].status = "halted" /\ a \in G[b].watchers
+    }
 
 acquaintances(G, a) ==
     { b \in DOMAIN G : G[a].references[b] > 0 }
@@ -87,7 +89,7 @@ marked(G) ==
     /\ PseudoRoots(G) \subseteq S
     /\ \A a \in S: 
         acquaintances(G, a) \ AppearsFaulty(G) \subseteq S
-    /\ \A a \in S \union AppearsFaulty(G): 
+    /\ \A a \in S: 
         watchers(G, a) \ AppearsFaulty(G) \subseteq S
 
 unmarked(G) == (DOMAIN G) \ marked(G)
