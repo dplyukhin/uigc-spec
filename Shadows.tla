@@ -66,29 +66,29 @@ shadows ==
         ]
     ]
         
-AppearsFaulty == 
-    { a \in Shadows : shadows[a].status = "halted" }
+AppearsFaulty(G) == 
+    { a \in DOMAIN G : G[a].status = "halted" }
 
-PseudoRoots ==
-    { a \in Shadows \ AppearsFaulty : LET s == shadows[a] IN
-        ~s.interned \/ s.sticky \/ s.status = "busy" \/ s.undelivered # 0 }
+PseudoRoots(G) ==
+    { a \in DOMAIN G \ AppearsFaulty(G) :
+        ~G[a].interned \/ G[a].sticky \/ G[a].status = "busy" \/ G[a].undelivered # 0 }
 
-acquaintances(a) ==
-    { b \in Shadows : shadows[a].references[b] > 0 }
+acquaintances(G, a) ==
+    { b \in DOMAIN G : G[a].references[b] > 0 }
         
-watchers(a) == { b \in Shadows : b \in shadows[a].watchers }
+watchers(G, a) == { b \in DOMAIN G : b \in G[a].watchers }
         
 (* In the shadow graph G, an actor is marked iff 
    0. It is a pseudo-root;
    1. A potentially unblocked actor appears acquainted with it; or
    2. A potentially unblocked actor is monitored by it.  *)
 marked(G) == 
-    CHOOSE S \in SUBSET (DOMAIN G) \ AppearsFaulty :
-    /\ PseudoRoots \subseteq S
+    CHOOSE S \in SUBSET (DOMAIN G) \ AppearsFaulty(G) :
+    /\ PseudoRoots(G) \subseteq S
     /\ \A a \in S: 
-        acquaintances(a) \ AppearsFaulty \subseteq S
-    /\ \A a \in S \union AppearsFaulty: 
-        watchers(a) \ AppearsFaulty \subseteq S
+        acquaintances(G, a) \ AppearsFaulty(G) \subseteq S
+    /\ \A a \in S \union AppearsFaulty(G): 
+        watchers(G, a) \ AppearsFaulty(G) \subseteq S
 
 unmarked(G) == (DOMAIN G) \ marked(G)
 

@@ -96,6 +96,6 @@ TypeOK ==
     /\ undo \in [NodeID -> UndoLog]
     /\ \A a \in DOMAIN amendedShadows: amendedShadows[a] \in S!Shadow
 
-Spec == S!unmarked(amendedShadows) = E!AppearsQuiescent
+Spec == S!unmarked(amendedShadows) = E!AppearsQuiescent \ E!ApparentlyExiledActors
 
 ====
