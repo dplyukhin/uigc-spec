@@ -78,19 +78,19 @@ acquaintances(a) ==
         
 watchers(a) == { b \in Shadows : b \in shadows[a].watchers }
         
-(* In the shadow graph G, an actor appears potentially unblocked iff 
+(* In the shadow graph G, an actor is marked iff 
    0. It is a pseudo-root;
    1. A potentially unblocked actor appears acquainted with it; or
    2. A potentially unblocked actor is monitored by it.  *)
-AppearsPotentiallyUnblocked == 
-    CHOOSE S \in SUBSET Shadows \ AppearsFaulty :
+marked(G) == 
+    CHOOSE S \in SUBSET (DOMAIN G) \ AppearsFaulty :
     /\ PseudoRoots \subseteq S
     /\ \A a \in S: 
         acquaintances(a) \ AppearsFaulty \subseteq S
     /\ \A a \in S \union AppearsFaulty: 
         watchers(a) \ AppearsFaulty \subseteq S
 
-AppearsQuiescent == Shadows \ AppearsPotentiallyUnblocked
+unmarked(G) == (DOMAIN G) \ marked(G)
 
 -----------------------------------------------------------------------------
 (* MODEL *)
@@ -107,6 +107,6 @@ Next == M!Next
 
 TypeOK == \A a \in Shadows: shadows[a] \in Shadow
 
-Spec == AppearsQuiescent = M!AppearsQuiescent
+Spec == unmarked(shadows) = M!AppearsQuiescent
 
 ====
