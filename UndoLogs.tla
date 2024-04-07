@@ -70,14 +70,20 @@ undeliverableRefs ==
         sum([ N \in E!ApparentlyExiledNodes |-> undo[N].undeliverableRefs[b,c] ])
     ]
 
+AmendedShadows ==
+    { a \in ActorName : 
+        /\ a \in S!Shadows
+        /\ (a \notin E!ApparentlyExiledActors \/ S!shadows[a].watchers # {}) 
+    }
+
 (* The shadow graph, amended using finalized undo logs. *)
 amendedShadows ==
-    [ b \in S!Shadows \ E!ApparentlyExiledActors |->
+    [ b \in AmendedShadows |->
         [
             interned    |-> S!shadows[b].interned,
             sticky      |-> S!shadows[b].sticky,
-            status      |-> S!shadows[b].status,
-            watchers    |-> S!shadows[b].watchers,
+            watchers    |-> S!shadows[b].watchers \ E!ApparentlyExiledActors,
+            status      |-> IF b \in E!ApparentlyExiledActors THEN "halted" ELSE S!shadows[b].status,
             undelivered |-> S!shadows[b].undelivered - undeliverableMsgs[b],
             references  |-> [c \in ActorName |-> S!shadows[b].references[c] - undeliverableRefs[b,c]]
         ]
@@ -94,8 +100,10 @@ Next == E!Next
 
 TypeOK == 
     /\ undo \in [NodeID -> UndoLog]
-    /\ \A a \in DOMAIN amendedShadows: amendedShadows[a] \in S!Shadow
+    /\ \A a \in AmendedShadows : amendedShadows[a] \in S!Shadow
 
-Spec == S!unmarked(amendedShadows) = E!AppearsQuiescent \ E!ApparentlyExiledActors
+Spec == 
+  S!unmarked(amendedShadows) \ E!ApparentlyExiledActors = 
+  E!AppearsQuiescent \ E!ApparentlyExiledActors
 
 ====
