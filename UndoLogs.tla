@@ -1,4 +1,4 @@
----- MODULE Shadows ----
+---- MODULE UndoLogs ----
 EXTENDS Common, Integers, FiniteSets, Bags, TLC
 
 CONSTANT NodeID
@@ -16,7 +16,7 @@ S == INSTANCE Shadows
 UndoLog == [
     node : NodeID,
     undeliverableMsgs : [ActorName -> Int],
-    undelivereableRefs : [ActorName \X ActorName -> Int]
+    undeliverableRefs : [ActorName \X ActorName -> Int]
 ]
 
 snapshotsFrom(N) == { a \in Snapshots : location[a] = N }
@@ -33,7 +33,7 @@ created(N,a,b) == sum([ c \in snapshotsFrom(N) |-> snapshots[c].created[a, b]])
    admitted to their destination, according to the ingress actors' snapshots. *)
 admittedMsgs(N1,b) == 
     LET N2 == location[b] IN 
-    IF <<N1,N2>> \in ingressSnapshots THEN
+    IF <<N1,N2>> \in DOMAIN ingressSnapshots THEN
         ingressSnapshots[N1,N2].admittedMsgs[b]
     ELSE 0
 
@@ -42,7 +42,7 @@ admittedMsgs(N1,b) ==
    snapshots. *)
 admittedRefs(N1,b,c) == 
     LET N2 == location[b] IN 
-    IF <<N1,N2>> \in ingressSnapshots THEN
+    IF <<N1,N2>> \in DOMAIN ingressSnapshots THEN
         ingressSnapshots[N1,N2].admittedRefs[b,c]
     ELSE 0
 
@@ -62,24 +62,24 @@ undo ==
 
 undeliverableMsgs ==
     [ b \in ActorName |->
-        sum([ N \in ApparentlyExiledNodes |-> undo[N].undeliverableMsgs[b] ])
+        sum([ N \in E!ApparentlyExiledNodes |-> undo[N].undeliverableMsgs[b] ])
     ]
 
 undeliverableRefs ==
     [ <<b,c>> \in ActorName \X ActorName |->
-        sum([ N \in ApparentlyExiledNodes |-> undo[N].undeliverableRefs[b,c] ])
+        sum([ N \in E!ApparentlyExiledNodes |-> undo[N].undeliverableRefs[b,c] ])
     ]
 
 (* The shadow graph, amended using finalized undo logs. *)
 amendedShadows ==
     [ b \in S!Shadows \ E!ApparentlyExiledActors |->
         [
-            interned    |-> shadows[b].interned,
-            sticky      |-> shadows[b].sticky,
-            status      |-> shadows[b].status,
-            watchers    |-> shadows[b].watchers,
-            undelivered |-> shadows[b].undelivered - undeliverableMsgs[b],
-            references  |-> [c \in ActorName |-> shadows[b].references[c] - undeliverableRefs[b,c]]
+            interned    |-> S!shadows[b].interned,
+            sticky      |-> S!shadows[b].sticky,
+            status      |-> S!shadows[b].status,
+            watchers    |-> S!shadows[b].watchers,
+            undelivered |-> S!shadows[b].undelivered - undeliverableMsgs[b],
+            references  |-> [c \in ActorName |-> S!shadows[b].references[c] - undeliverableRefs[b,c]]
         ]
     ]
 
@@ -94,7 +94,7 @@ Next == E!Next
 
 TypeOK == 
     /\ undo \in [NodeID -> UndoLog]
-    /\ amendedShadows \in ShadowGraph
+    /\ \A a \in DOMAIN amendedShadows: amendedShadows[a] \in S!Shadow
 
 Spec == S!unmarked(amendedShadows) = E!AppearsQuiescent
 
