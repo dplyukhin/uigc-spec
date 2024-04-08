@@ -10,6 +10,7 @@ EXTENDS Common, Integers, FiniteSets, Bags, TLC
 CONSTANT NodeID
 VARIABLE location, ingress, ingressSnapshots, droppedMsgs
 
+D == INSTANCE Dynamic
 M == INSTANCE Monitors
 
 (* We add two fields to every message. `origin' indicates the node that produced the
@@ -308,14 +309,7 @@ created(a, b) ==
     sum([ N1 \in ApparentlyExiledNodes, N2 \in NodeID \ ApparentlyExiledNodes |-> 
           ingressSnapshots[N1, N2].admittedRefs[a, b] ])
 
-(* Once an actor `a' is exiled, all its references are effectively deactivated. Thus the effective 
-   deactivated count is equal to the effective created count. Note that any references sent to `a'
-   that were dropped are implicitly included in this count. *)
-deactivated(a, b) == 
-    IF a \in ApparentlyExiledActors THEN 
-        created(a, b) 
-    ELSE 
-        IF a \in Snapshots THEN snapshots[a].deactivated[b] ELSE 0
+deactivated(a, b) == D!deactivated(a, b)
 
 (* Once an actor `a' is exiled, the number of messages that `a' sent effectively to some `b'
    is equal to the number of messages admitted by the ingress actor at `b''s node. Thus the
@@ -326,11 +320,7 @@ sent(b) ==
     sum([ a \in NonExiledSnapshots |-> snapshots[a].sent[b]]) +
     sum([ N1 \in ApparentlyExiledNodes |-> ingressSnapshots[N1, location[b]].admittedMsgs[b] ])
 
-(* All messages to `b' that were dropped are effectively received. Thus an actor's
-   effective receive count is the sum of its actual receive count and the number of 
-   dropped messages sent to it. Note that dropped messages from exiled actors are
-   also included in this count. *)
-received(b) == IF b \in Snapshots THEN snapshots[b].received ELSE 0
+received(b) == D!received(b)
 
 (* Hereto inverse acquaintances now incorporate ingress snapshot information. 
    Once an actor appears exiled, it is no longer considered a hereto inverse
