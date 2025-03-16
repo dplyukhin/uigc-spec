@@ -83,9 +83,11 @@ amendedShadows ==
             interned    |-> S!shadows[b].interned,
             sticky      |-> S!shadows[b].sticky,
             watchers    |-> S!shadows[b].watchers \ E!ApparentlyExiledActors,
-            status      |-> IF b \in E!ApparentlyExiledActors THEN "halted" ELSE S!shadows[b].status,
+            status      |-> IF b \in E!ApparentlyExiledActors 
+                            THEN "halted" ELSE S!shadows[b].status,
             undelivered |-> S!shadows[b].undelivered - undeliverableMsgs[b],
-            references  |-> [c \in ActorName |-> S!shadows[b].references[c] - undeliverableRefs[b,c]]
+            references  |-> [c \in ActorName |-> 
+                             S!shadows[b].references[c] - undeliverableRefs[b,c]]
         ]
     ]
 
