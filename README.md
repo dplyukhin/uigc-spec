@@ -1,7 +1,23 @@
 This repository hosts TLA+ specifications for the paper "CRGC: Fault-Recovering
 Actor Garbage Collection in Pekko".
 
+# Quick Start
+
+Ensure you have Java (version 11 or higher) already installed and a copy
+of `tla2tools.jar` in the root directory of this repository. To quickly 
+model check all the specifications up to bounded depth, run the command:
+
+```bash
+./check.sh
+```
+
+The command should finish running in less than a minute.  Errors and 
+other information will be written to the `logs/` directory.
+
 # Overview
+
+TLA+ specifications are in the `spec/` directory. Configuration files
+for model checking are in the `config/` directory.
 
 `FaultModel.tla` formalizes our model of a distributed actor system.
 Actors can monitor each other for failure, messages can be dropped,
@@ -20,17 +36,3 @@ increasing complexity:
 
 `Exile.tla` corresponds to Section 4.1 of the paper. `Shadows.tla` and
 `UndoLogs.tla` correspond to Section 4.2 of the paper.
-
-# Model checking
-
-TLC (the TLA+ model checker) performs a breadth-first exhaustive search 
-by default. Unfortunately, the models in this repository are unbounded and 
-grow quickly as the search depth increases. Many bugs require ~10 steps to 
-manifest---a depth that is already infeasible to search exhaustively. However,
-random simulation is sufficient for finding most bugs within a few
-minutes.
-
-To search exhaustively up to depth N, pass the option `-dfid N` to TLC.
-
-To simulate executions up to depth N, pass the option `-simulate -depth N`.
-The depth defaults to 100.
