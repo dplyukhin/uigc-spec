@@ -14,6 +14,15 @@ model check all the specifications up to bounded depth, run the command:
 The command should finish running in less than a minute.  Errors and 
 other information will be written to the `logs/` directory.
 
+If you also have `pdflatex` installed, you can generate pretty PDF
+versions of the specifications. Run the command:
+
+```bash
+./format.sh
+```
+
+The PDFs will be written to the `tex` directory.
+
 # Overview
 
 TLA+ specifications are in the `spec/` directory. Configuration files
