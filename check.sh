@@ -3,7 +3,7 @@
 BFS_DEPTH=4
 DFS_DEPTH=50
 DFS_SIMULATIONS=10
-MODELS=("Dynamic" "Monitors" "Exile" "Shadows" "UndoLogs")
+MODELS=("FaultModel" "Dynamic" "Monitors" "Exile" "Shadows" "UndoLogs")
 
 trap 'echo "Exiting."; exit 1' SIGINT
 

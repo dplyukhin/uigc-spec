@@ -10,7 +10,7 @@ CONSTANT
                  \* is undefined.
 
 (* 
-A configuration is a 4-tuple (`actors', `location', `msgs', shunned): *)
+A configuration is a 4-tuple (`actors', `location', `msgs', `shunned'): *)
 VARIABLE 
     actors,      \* A partial map from actor names to actor states (i.e. behaviors).
     location,    \* A partial map from actor names to actor locations (i.e. nodes).
@@ -69,6 +69,7 @@ TypeOK ==
   /\ actors \in [ActorName -> ActorState \cup {null}]
   /\ location \in [ActorName -> NodeID \cup {null}]
   /\ BagToSet(msgs) \subseteq Message
+  /\ shunned \in [NodeID \X NodeID -> BOOLEAN]
   (* The above invariant states that `actors' and `location' are partial 
      maps and that `msgs' is a bag of messages. *)
 
@@ -81,14 +82,16 @@ which maps each `b' to 0 except for `a', which is mapped to 1.
 *)
 InitialConfiguration(a, N) == 
     LET state == [
-        status: "busy", 
-        isSticky: TRUE,
-        active: (a :> 1) @@ [b \in ActorName |-> 0]
+        status    |-> "busy", 
+        isSticky  |-> TRUE,
+        active    |-> (a :> 1) @@ [b \in ActorName |-> 0],
+        monitored |-> {}
     ] 
     IN
     /\ actors = (a :> state) @@ [b \in ActorName |-> null]
     /\ location = (a :> N) @@ [b \in ActorName |-> null]
     /\ msgs = EmptyBag
+    /\ shunned = [N1,N2 \in NodeID |-> FALSE]
     (* 
     `actors[b]' and `location[b]' are `null' (i.e. undefined) 
     for every actor except `a'; we set `actors[a]' equal to `state'
@@ -222,10 +225,10 @@ Spawn(a,b,N) ==
     /\ actors' = [actors EXCEPT 
         ![a].active[b] = 1, \* The parent obtains a reference to the child.
         ![b] = [ 
-            status: "busy",                                 \* The child is busy,
-            isSticky: FALSE,                                \* not sticky,
-            active: (b :> 1) @@ [c \in ActorName |-> null], \* has a reference to itself,
-            monitored: {}                                   \* and monitors nobody.
+            status    |-> "busy",                               \* The child is busy,
+            isSticky  |-> FALSE,                                \* not sticky,
+            active    |-> (b :> 1) @@ [c \in ActorName |-> 0],  \* has a reference to itself,
+            monitored |-> {}                                    \* and monitors nobody.
         ]]
     /\ location' = [location EXCEPT ![b] = N]
     /\ UNCHANGED <<msgs,shunned>>
