@@ -196,7 +196,7 @@ Spec == (Quiescent \intersect SnapshotsSufficient) = AppearsQuiescent
 (* TEST CASES: These invariants do not hold, showing that interesting forms of 
    garbage can indeed exist and be detected. *)
 
-(* This invariant fails, showing that the set of quiescent actors is nonempty. *)
+(* This invariant fails, showing that there exist quiescent actors. *)
 GarbageExists == ~(Quiescent = {})
 
 (* This invariant fails, showing that quiescence can be detected and that it
